@@ -229,6 +229,53 @@ static bool test_end_to_end_transliteration() {
     return true;
 }
 
+static bool test_retaining_cycled_candidate_across_typing() {
+    PhoneticEngine engine;
+    engine.loadRulesFromString(R"({
+        "a": ["অ", "আ", ""],
+        "l": ["ল"],
+        "u": ["উ", "ঊ"]
+    })");
+
+    // 1. User types 'a' -> default candidate is "অ"
+    engine.updateActiveBuffer("a");
+    TEST_ASSERT_EQ(engine.getActiveComposedString(), "অ");
+
+    // 2. User cycles candidate: 'a' -> 'আ'
+    bool cycled = engine.cycleActiveCandidate();
+    TEST_ASSERT(cycled);
+    TEST_ASSERT_EQ(engine.getActiveComposedString(), "আ");
+
+    // 3. User continues typing 'l' -> buffer is "al"
+    // The engine MUST retain 'আ' from previous candidate selection rather than resetting to 'অ'!
+    engine.updateActiveBuffer("al");
+    TEST_ASSERT_EQ(engine.getActiveComposedString(), "আল");
+
+    // 4. User types 'u' -> buffer is "alu"
+    // Candidate selections must be preserved: 'আ' + 'ল' + 'ু' = "আলু"
+    engine.updateActiveBuffer("alu");
+    TEST_ASSERT_EQ(engine.getActiveComposedString(), "আলু");
+
+    // 5. Flushing the active buffer on space/enter must retain "আলু"
+    std::string flushed = engine.flushActive();
+    TEST_ASSERT_EQ(flushed, "আলু");
+    TEST_ASSERT_EQ(engine.getActiveComposedString(), ""); // active state cleared
+
+    // 6. Test full-word candidate rotation on "alu" starting from default "অলু"
+    engine.updateActiveBuffer("alu");
+    TEST_ASSERT_EQ(engine.getActiveComposedString(), "অলু");
+
+    // Cycle 1: cycles 'u' from 'উ' to 'ঊ' -> "অলূ"
+    engine.cycleActiveCandidate();
+    TEST_ASSERT_EQ(engine.getActiveComposedString(), "অলূ");
+
+    // Cycle 2: 'u' wraps, carries over to cycle 'a' from 'অ' to 'আ' -> "আলু"
+    engine.cycleActiveCandidate();
+    TEST_ASSERT_EQ(engine.getActiveComposedString(), "আলু");
+
+    return true;
+}
+
 int main() {
     // Enable UTF-8 console output for Bengali characters
     SetConsoleOutputCP(CP_UTF8);
@@ -245,6 +292,7 @@ int main() {
     RUN_TEST(test_epsilon_candidate);
     RUN_TEST(test_special_char_picker);
     RUN_TEST(test_end_to_end_transliteration);
+    RUN_TEST(test_retaining_cycled_candidate_across_typing);
 
     std::cout << "\n----------------------------------------\n";
     std::cout << "Results: " << g_testsPassed << "/" << g_testsRun << " passed";

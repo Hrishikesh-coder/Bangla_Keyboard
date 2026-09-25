@@ -54,6 +54,12 @@ public:
      */
     std::string getActiveComposedString() const;
 
+    /**
+     * @brief Flushes the active candidates, returning the composed string and clearing active state.
+     * Preserves any candidate selections made during typing or candidate cycling.
+     */
+    std::string flushActive();
+
     /// Clears the active candidate state.
     void clearActive();
 

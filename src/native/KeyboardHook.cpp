@@ -284,13 +284,12 @@ LRESULT CALLBACK KeyboardHook::hookCallback(int nCode, WPARAM wParam, LPARAM lPa
     if ((isSpace || isReturn || isPunctuation) && !s_buffer.empty()) {
         if (isKeyDown) {
             std::string roman = s_buffer.content();
-            std::string bengali = s_engine ? s_engine->transliterate(roman) : roman;
+            std::string bengali = s_engine ? s_engine->flushActive() : roman;
 
             std::cout << "[FLUSH] \"" << roman << "\" ==> \"" << bengali << "\"" << std::endl;
 
             // Clear buffer before injection to prevent race conditions
             s_buffer.clear();
-            if (s_engine) s_engine->clearActive();
 
             // Inject the Bengali Unicode string into the active application
             InputInjector::injectText(bengali);
