@@ -12,7 +12,11 @@ An educational System Programming prototype demonstrating how to intercept, proc
 4. [Architecture](#architecture)
 5. [Class Breakdown](#class-breakdown)
 6. [Complete Input Flow Pipeline](#complete-input-flow-pipeline)
-7. [Phonetic Tokenization (Longest-Match-First)](#phonetic-tokenization-longest-match-first)
+7. [Phonetic Tokenization (Longest-Match-First)](#7-phonetic-tokenization-longest-match-first)
+   - [7a. Contextual Resolution (the second pass)](#7a-contextual-resolution-the-second-pass)
+   - [7b. Exception Dictionary](#7b-exception-dictionary)
+   - [7c. Fixed Layout Mode](#7c-fixed-layout-mode)
+   - [7d. Live In-Place Preview](#7d-live-in-place-preview)
 8. [Configurable Symbol Table & JSON](#configurable-symbol-table--json)
 9. [Unicode Composition & Bengali Conjuncts](#unicode-composition--bengali-conjuncts)
 10. [Special Character Picker (ৎ ং ঃ ঁ ঞ)](#special-character-picker-ৎ-ং-ঃ-ঁ-ঞ)
@@ -97,17 +101,26 @@ Shobdomala/
 ├── build.bat                   # Direct one-click Windows build script
 ├── README.md                   # This documentation
 ├── config/
-│   └── phonetic_rules.json     # User-editable Roman -> Bengali phonetic rules
+│   ├── phonetic_rules.json     # User-editable Roman -> Bengali rules, with context variants
+│   ├── exceptions.json         # Whole-word overrides + English passthrough list
+│   └── layout_probhat.json     # Fixed keyboard layout (key -> glyph map)
+├── docs/
+│   └── CONTEXTUAL_ENGINE.md    # Why the engine needs two passes (report material)
 ├── include/
 │   ├── core/
-│   │   ├── Candidate.h         # Roman token + candidate Bengali strings
-│   │   ├── CandidateResolver.h # Abstract selection strategy (educational extension point)
-│   │   ├── InputBuffer.h       # Manages in-progress Roman keystrokes
-│   │   ├── PhoneticEngine.h    # High-level pipeline coordinator
-│   │   ├── SpecialCharPicker.h # Selection menu for ৎ, ং, ঃ, ঁ, ঞ
-│   │   ├── SymbolTable.h       # Hash-table storage & token length sorting
-│   │   ├── Tokenizer.h         # Longest-match-first tokenizer
-│   │   └── UnicodeComposer.h   # Bengali virama & matra Unicode composition
+│   │   ├── Candidate.h            # Roman token + candidate Bengali strings
+│   │   ├── CandidateResolver.h    # Abstract selection strategy (extension point)
+│   │   ├── ContextAnalyzer.h      # Pass 2: annotates tokens with their surroundings
+│   │   ├── ExceptionDictionary.h  # Whole-word overrides
+│   │   ├── FixedLayoutEngine.h    # Stateless key -> glyph layout engine
+│   │   ├── InputBuffer.h          # Manages in-progress Roman keystrokes
+│   │   ├── PhoneticEngine.h       # High-level pipeline coordinator
+│   │   ├── SpecialCharPicker.h    # Selection menu for ৎ, ং, ঃ, ঁ, ঞ
+│   │   ├── SymbolTable.h          # Rule storage, contextual lookup, trie index
+│   │   ├── TokenContext.h         # TokenClass + context bit flags
+│   │   ├── Tokenizer.h            # Longest-match-first tokenizer
+│   │   ├── TokenTrie.h            # Prefix tree backing the tokenizer
+│   │   └── UnicodeComposer.h      # Bengali virama & matra Unicode composition
 │   └── native/
 │       ├── InputInjector.h     # Win32 SendInput Unicode synthesizer
 │       ├── KeyboardHook.h      # WH_KEYBOARD_LL hook & message pump
@@ -115,11 +128,16 @@ Shobdomala/
 ├── src/
 │   ├── core/
 │   │   ├── CandidateResolver.cpp
+│   │   ├── ContextAnalyzer.cpp
+│   │   ├── ExceptionDictionary.cpp
+│   │   ├── FixedLayoutEngine.cpp
 │   │   ├── InputBuffer.cpp
 │   │   ├── PhoneticEngine.cpp
 │   │   ├── SpecialCharPicker.cpp
 │   │   ├── SymbolTable.cpp
+│   │   ├── TokenContext.cpp
 │   │   ├── Tokenizer.cpp
+│   │   ├── TokenTrie.cpp
 │   │   └── UnicodeComposer.cpp
 │   ├── native/
 │   │   ├── InputInjector.cpp
@@ -184,6 +202,29 @@ Shobdomala/
    - Orchestrates the full pipeline: `InputBuffer` -> `Tokenizer` -> `SymbolTable` -> `CandidateResolver` -> `UnicodeComposer`.
    - Manages candidate cycling on the in-progress word.
 
+**`TokenTrie`**:
+
+- Prefix tree over every registered Roman token, backing the tokenizer's longest-match walk.
+- Replaces a per-position substring scan; tokenization is O(n) instead of O(n x maxTokenLength).
+
+**`TokenContext`** (`TokenClass`, `Ctx` flags):
+
+- Classifies a token as vowel / consonant / modifier / punctuation, declared in JSON or inferred from its first candidate.
+- Defines the context bit flags (`word_start`, `after_consonant`, `before_vowel`, ...) that contextual rules are written against.
+
+**`ContextAnalyzer`**:
+
+- The second pass. Annotates each token with a context bitmask computed purely from neighbouring token *classes*, before any Bengali codepoint is chosen.
+- This is what lets one token produce different letters in different positions — see [7a](#7a-contextual-resolution-the-second-pass).
+
+**`ExceptionDictionary`**:
+
+- Whole-word overrides consulted before the rule pipeline: irregular spellings (`dhonnobad` -> ধন্যবাদ) and English words that map to themselves so they pass through untouched.
+
+**`FixedLayoutEngine`**:
+
+- Stateless key -> glyph mapping for fixed Bengali layouts. No buffer, no candidates, no composition; the typist presses the hasant key to build conjuncts.
+
 ### Native Module (`include/native/` and `src/native/`)
 
 1. **`KeyboardState`**:
@@ -215,27 +256,44 @@ Shobdomala/
           │                                                │
           ▼ YES                                            ▼
    CallNextHookEx (Pass)                   Check Keyboard Shortcuts:
-                                           - Ctrl+Shift+B -> Toggle Mode
+   (covers our own Bengali output          - Ctrl+Shift+B -> Toggle English/Bengali
+    AND our preview backspaces)            - Ctrl+Shift+L -> Cycle input mode
                                            - Ctrl+Shift+Space -> Cycle Candidate
                                            - Ctrl+Shift+D -> Special Menu
+                                           - Ctrl+Shift+P -> Toggle live preview
                                                            │
                                                            ▼
-                                               Is Mode == BENGALI?
-                                               ├── NO (English): CallNextHookEx
-                                               └── YES:
-                                                    │
-             ┌──────────────────────────────────────┴───────────────────────────┐
-             ▼                                                                  ▼
-   Alphabetic ('a'-'z'):                                               Space / Enter / Punct:
-   1. Append to InputBuffer                                            1. Extract Roman buffer
-   2. Engine updates preview                                           2. Tokenize (longest-match)
-   3. Return 1 (Suppress from active window)                           3. Lookup candidates in SymbolTable
-                                                                       4. Select candidates (Resolver)
-                                                                       5. Compose Unicode (viramas & matras)
-                                                                       6. Clear InputBuffer
-                                                                       7. Inject via SendInput(KEYEVENTF_UNICODE)
-                                                                       8. Pass triggering Space/Enter through!
+                                               Which InputMode?
+                          ┌────────────────────────────────┼────────────────────────┐
+                          ▼                                ▼                        ▼
+                     ENGLISH                        BENGALI_FIXED           BENGALI_PHONETIC
+                CallNextHookEx (pass)        1. ToUnicodeEx -> ASCII key             │
+                                             2. FixedLayoutEngine::mapKey            │
+                                             3. Inject glyph, return 1               │
+                                                (stateless: no buffer)               │
+                                                                                     │
+             ┌───────────────────────────────────────────────────────────────────────┤
+             ▼                                                                       ▼
+   Letter key A-Z:                                                    Space / Enter / Punct:
+   1. ToUnicodeEx -> char (Shift + Caps correct; case matters: T=ট t=ত)  1. commitBuffer()
+   2. InputBuffer::append                                               2. Exception dictionary
+   3. PhoneticEngine::updateActiveBuffer                                    may correct the
+        ├─ Tokenizer        (pass 1: trie, maximal munch)                    preview in place
+        ├─ ContextAnalyzer  (pass 2: context bitmask per token)           3. Clear buffer + preview
+        ├─ SymbolTable      (contextual candidate lookup)                 4. Pass the delimiter
+        ├─ CandidateResolver(index within that list)                         through untouched
+        └─ UnicodeComposer  (viramas, matras, inherent vowel)
+   4. refreshPreview():
+        InputInjector::replaceText(previousUnits, composed)
+        = N backspaces + new text, in ONE SendInput batch
+   5. Return 1 (suppress the Roman key from the active window)
 ```
+
+**Live preview vs. flush-on-delimiter.** The path above renders the word into the target
+application on every keystroke. With `Ctrl + Shift + P` (or `--no-preview`) nothing is
+injected until a delimiter is typed, which is the original prototype's behaviour and the
+safe fallback in applications that move the caret underneath us — see
+[7d](#7d-live-in-place-preview).
 
 ---
 
@@ -265,6 +323,148 @@ while pos < input.length:
 ```
 
 By querying the `SymbolTable` from `maxTokenLength` down to `1`, tokens like `"chh"`, `"sh"`, `"kh"` are greedily matched before single-letter prefixes like `"c"`, `"s"`, `"k"`.
+
+---
+
+## 7a. Contextual Resolution (the second pass)
+
+Longest-match tokenization alone is not enough. A phonetic token's correct Bengali output
+depends on what surrounds it, and the original pipeline had nowhere to put that knowledge:
+`DefaultCandidateResolver` always returned index 0, so every rule behaved identically
+everywhere in a word. The result, measured against this README's own examples:
+
+| Input | Before | After |
+|---|---|---|
+| `shanti` | শন্তি | **শান্তি** |
+| `amar` | অমর | **আমার** |
+| `bangla` | বঙ্ল | **বাংলা** |
+| `gai` | গৈ | **গাই** |
+| `rong` | রোং | **রং** |
+
+Three kinds of context dependence cause this:
+
+1. **Independent vowel vs. matra** — আ stands alone but attaches as া. `gai` must be গ + া + ই, not গৈ.
+2. **Letters that change identity by position** — `ng` is ঙ between vowels (রঙিন) but ং before a consonant or at a word end (বাংলা, রং).
+3. **The inherent vowel** — every consonant carries an unwritten ô. `kol` is কল: the `o` emits no glyph, yet it must still break the cluster or ক and ল fuse into ক্ল.
+
+### Why this needs a separate pass
+
+When the tokenizer emits `a` in `bangla`, it has not yet looked at what follows. Deciding
+`a`'s output requires tokens that have not been scanned. This is exactly the forward
+reference that forces an assembler into two passes — `JMP LOOP` cannot be emitted until
+`LOOP` is known — and it is resolved the same way: **separate recognition from resolution.**
+
+| Two-pass assembler | Shobdomala |
+|---|---|
+| Pass 1: scan source, build symbol table, record references | Pass 1: `Tokenizer` — longest-match-first segmentation |
+| Pass 2: resolve references against the complete table, emit code | Pass 2: `ContextAnalyzer` -> contextual lookup -> `UnicodeComposer`, emit Unicode |
+
+`ContextAnalyzer` annotates every token with a bitmask drawn from `word_start`, `word_end`,
+`after_consonant`, `after_vowel`, `after_modifier`, `before_consonant`, `before_vowel` and
+`before_modifier`. It works purely on **token classes**, never on Bengali output, so it runs
+before a single codepoint has been chosen — a genuine second pass, not a fixup afterwards.
+
+### Contextual rules are data
+
+```json
+"ng": {
+  "class": "consonant",
+  "candidates": ["ঙ", "ং"],
+  "context": [
+    { "when": ["before_consonant"], "candidates": ["ং", "ঙ"] },
+    { "when": ["word_end"],         "candidates": ["ং", "ঙ"] }
+  ]
+}
+```
+
+Variants are tested in declaration order; the first whose `when` flags are **all** satisfied
+wins. Adding a rule never requires touching C++. The older flat forms (`"kh": "খ"` and
+`"sh": ["শ", "ষ", "স"]`) still load unchanged, and a rule that omits `class` has it inferred
+from its first candidate.
+
+### The inherent-vowel marker
+
+`UnicodeComposer` already treated অ specially: after a consonant it emits nothing but clears
+the "previous was a consonant" flag. The rule set now uses that deliberately —
+`"o": { "class": "vowel", "candidates": ["অ", "ও"] }` — which is why `rong` gives রং,
+`kolm` gives কল্ম, and `kl` (no vowel typed at all) gives ক্ল. An empty-string epsilon
+candidate cannot do this job: it emits nothing *and leaves the consonant flag set*, so the
+next consonant would still fuse.
+
+Typing conventions that follow: lowercase `o` is the inherent vowel (`kol` -> কল), capital
+`O` forces the explicit ও/ো (`sOnar` -> সোনার), and capitals otherwise select the retroflex
+series (`T`=ট `D`=ড `N`=ণ `S`=শ `Sh`=ষ `R`=ড়).
+
+Full write-up in [`docs/CONTEXTUAL_ENGINE.md`](docs/CONTEXTUAL_ENGINE.md).
+
+### Tokenizer: trie instead of substring scan
+
+The original tokenizer tried every substring length from `maxTokenLength` down to 1 at each
+position, constructing and hashing up to `maxTokenLength` temporary strings per character.
+`TokenTrie` walks the input once and allocates nothing, making tokenization O(n) rather than
+O(n x maxTokenLength). This is not premature optimisation: the hook re-tokenizes the entire
+in-progress word on **every keystroke**, inside a callback Windows silently unhooks if it
+runs too long. `test_trie_matches_bruteforce_scan` asserts the trie produces byte-identical
+tokenization to the original scan, so the change is proven behaviour-preserving.
+
+---
+
+## 7b. Exception Dictionary
+
+Rule-based transliteration is systematic; Bengali spelling is not. `config/exceptions.json`
+holds whole-word overrides checked **before** the rule pipeline runs:
+
+```json
+{
+  "words": {
+    "dhonnobad": "ধন্যবাদ",
+    "download": "download"
+  }
+}
+```
+
+Two uses. Words whose written form contains something nobody types phonetically —
+`dhonnobad` is pronounced with a doubled ন but written ধন্যবাদ with a য-fola, which no
+phonetic rule can derive. And English words that must survive untouched: they map to
+themselves, which is how the engine learns to leave them alone. Lookup is exact first, then
+case-insensitive.
+
+---
+
+## 7c. Fixed Layout Mode
+
+Phonetic input guesses; a fixed layout does not. `FixedLayoutEngine` implements the other
+way Bengali is actually typed: one key, one glyph, with the typist pressing the hasant key
+themselves to build conjuncts. It is completely stateless — no buffer, no candidates, no
+composition pass — which is exactly why professional Bengali typists prefer fixed layouts.
+
+Press `Ctrl + Shift + L` to cycle into it. The map lives in `config/layout_probhat.json`, so
+a different layout, or one a user designs, is a data edit rather than a code change.
+
+> **Note:** the shipped map is a *draft*. It is complete and internally consistent — every
+> Bengali letter, matra and sign is reachable, and `test_shipped_layout_is_complete` asserts
+> that — but it has not been checked key-for-key against the official Probhat chart. Verify
+> it before claiming Probhat compatibility in the report.
+
+---
+
+## 7d. Live In-Place Preview
+
+By default the in-progress word is now rendered **into the target application as it is
+typed**, the way Avro behaves: each keystroke erases the previous rendering with backspaces
+and injects the updated one, batched into a single `SendInput` call so the two halves cannot
+be interleaved with real keystrokes.
+
+`InputInjector::replaceText(previousUnits, newText)` handles this. The unit of measurement is
+UTF-16 code units, because that is what backspace operates on in Windows edit controls — not
+bytes, and not codepoints.
+
+The live path assumes the caret has not moved since the word began. If the user clicks
+elsewhere, presses an arrow key, or the application rewrites the field underneath (an
+autocomplete box, a terminal, a spreadsheet cell editor), backspaces would delete the wrong
+text. Two defences: any non-delimiter key commits the current word first, and
+`Ctrl + Shift + P` (or `--no-preview` at startup) falls back to the original
+flush-on-delimiter behaviour.
 
 ---
 
@@ -465,9 +665,11 @@ Run the main executable:
 #### Keyboard Shortcuts:
 | Shortcut | Action | Description |
 |---|---|---|
-| **`Ctrl + Shift + B`** | **Toggle Input Mode** | Switches between `ENGLISH` and `BENGALI` modes. |
+| **`Ctrl + Shift + B`** | **Toggle Input Mode** | Switches between `ENGLISH` and `BENGALI` (phonetic). |
+| **`Ctrl + Shift + L`** | **Cycle Input Mode** | `ENGLISH` -> phonetic -> fixed layout -> `ENGLISH`. |
 | **`Ctrl + Shift + Space`** | **Cycle Candidate** | Cycles the alternative candidate for ambiguous tokens. |
 | **`Ctrl + Shift + D`** | **Special Bengali Menu** | Opens the menu for `ৎ`, `ং`, `ঃ`, `ঁ`, `ঞ` (press `1`-`5`). |
+| **`Ctrl + Shift + P`** | **Toggle Live Preview** | Live in-place rendering vs. flush-on-delimiter. |
 | **`Ctrl + C`** | **Exit** | Uninstalls the keyboard hook cleanly and exits. |
 
 #### Example Live Typing Workflow:
@@ -500,9 +702,25 @@ Output:
 [RUN ] test_epsilon_candidate ... PASSED
 [RUN ] test_special_char_picker ... PASSED
 [RUN ] test_end_to_end_transliteration ... PASSED
+[RUN ] test_token_trie_longest_match ... PASSED
+[RUN ] test_trie_matches_bruteforce_scan ... PASSED
+[RUN ] test_context_analyzer_flags ... PASSED
+[RUN ] test_contextual_rule_selection ... PASSED
+[RUN ] test_legacy_rule_format_still_loads ... PASSED
+[RUN ] test_exception_dictionary ... PASSED
+[RUN ] test_exception_overrides_rules ... PASSED
+[RUN ] test_shipped_rules_load ... PASSED
+[RUN ] test_readme_examples ... PASSED
+[RUN ] test_inherent_vowel_handling ... PASSED
+[RUN ] test_case_sensitive_retroflex_tokens ... PASSED
+[RUN ] test_unicode_conformance_sequences ... PASSED
+[RUN ] test_candidate_cycling_end_to_end ... PASSED
+[RUN ] test_punctuation_and_unknown_passthrough ... PASSED
+[RUN ] test_fixed_layout_engine ... PASSED
+[RUN ] test_shipped_layout_is_complete ... PASSED
 
 ----------------------------------------
-Results: 8/8 passed
+Results: 24/24 passed
 ========================================
 ```
 
@@ -512,13 +730,15 @@ Results: 8/8 passed
 
 As a minimal educational prototype, Shobdomala intentionally omits several production IME features:
 
-1. **No In-Place Floating Preview Window**:
-   - Transliteration previews are printed to the console rather than rendered in an in-place floating IME candidate window above the cursor.
-2. **Word-Boundary Flushes**:
-   - The buffer flushes when a word boundary (space, enter, punctuation) is typed, rather than constantly editing backwards into the active document.
-3. **No Contextual Linguistic Engine**:
-   - Bengali phonetic spelling has homophones (e.g. `শ`, `ষ`, `স` or `ন`, `ণ` or `ই`, `ঈ`). Full IMEs like Avro Keyboard use dictionary lookups or statistical language models to pick the best candidate. Shobdomala defaults to index `0` and provides manual candidate cycling.
-4. **Elevated Applications & UIPI**:
+1. **No Floating Candidate Window**:
+   - The word now renders in place inside the target application as it is typed, but the list of *alternative* candidates is still printed to the console rather than shown in a floating IME window above the cursor. Cycling is therefore blind: you see the result change, not the options.
+2. **Live Preview Assumes a Stationary Caret**:
+   - In-place rendering erases the previous version with backspaces. If the caret moves mid-word for a reason we cannot observe — a mouse click, an autocomplete box rewriting the field, a terminal redrawing its line — those backspaces delete the wrong text. Any non-delimiter key commits the word defensively, and `Ctrl + Shift + P` / `--no-preview` restores the flush-on-delimiter behaviour.
+3. **Context, Not Comprehension**:
+   - Contextual rules resolve position-dependent forms (`ng` as ঙ vs ং, matra vs independent vowel, the inherent vowel). They cannot resolve genuine homophones: `শ`/`ষ`/`স`, `ন`/`ণ`, `ই`/`ঈ` are distinguished by *meaning*, not position. Full IMEs like Avro use dictionary lookups or statistical language models; Shobdomala ships an exception dictionary for common cases, orders candidates by likelihood, and leaves the rest to manual cycling. `ICandidateResolver` is the documented place to plug in something smarter.
+4. **Fixed Layout Is a Draft**:
+   - `config/layout_probhat.json` is complete and internally consistent but has not been verified key-for-key against the official Probhat chart. Treat it as Shobdomala's own layout until checked.
+5. **Elevated Applications & UIPI**:
    - On Windows, User Interface Privilege Isolation (UIPI) prevents standard user applications from sending `SendInput` events to elevated (Administrator) windows. To type into an elevated application, Shobdomala must also be run with Administrator privileges.
-5. **No Advanced Glyphs / OpenType Shaping**:
+6. **No Advanced Glyphs / OpenType Shaping**:
    - Unicode composition generates logical Unicode codepoint sequences. Rendering ligatures, reordering the pre-base `ে` (e-kar) and `ি` (i-kar) glyphs visually, and shaping complex conjuncts is delegated to Windows DirectWrite / Uniscribe and the target application's font engine, which is the standard architecture.
