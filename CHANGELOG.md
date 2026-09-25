@@ -107,14 +107,28 @@ exactly this and was never used.
 - Rule files written for the original prototype still load: `"kh": "খ"` and
   `"sh": ["শ", "ষ", "স"]` are both accepted, verified by
   `test_legacy_rule_format_still_loads`.
-- All 8 original tests still pass unmodified.
+- All 9 pre-existing tests, including `test_retaining_cycled_candidate_across_typing`, still pass unmodified.
 - `SymbolTable::lookup`, `getTokensSortedByLengthDesc`, `getMaxTokenLength`,
   `Tokenizer::tokenize`, `PhoneticEngine::transliterate` and `KeyboardHook::install` keep
   their existing signatures and behaviour.
 
+### Interaction with candidate retention (05e0eed)
+
+This branch is rebased on top of Antariksh's candidate-retention and odometer cycling work,
+and the two compose without changes to either:
+
+- `updateActiveBuffer` retains a selection only when the token *and its options list* match
+  the previous keystroke. Contextual variants change the options list when a token's
+  context changes, so the guard correctly drops a stale selection instead of carrying it
+  onto a different candidate set.
+- On commit, `KeyboardHook::finalTextFor()` checks the exception dictionary first and
+  otherwise composes from the active candidate list via `flushActive()`. Calling
+  `transliterate()` there would rebuild from index 0 and silently discard whatever the user
+  picked with `Ctrl+Shift+Space`.
+
 ### Tests
 
-24 passing, up from 8. The 16 added cover the trie (including a byte-for-byte equivalence
+25 passing, up from 9. The 16 added by this branch cover the trie (including a byte-for-byte equivalence
 check against a reference implementation of the original substring scan), context flag
 computation, contextual rule selection, legacy rule loading, the exception dictionary,
 inherent-vowel handling, case-sensitive tokens, candidate cycling end to end, punctuation

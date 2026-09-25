@@ -702,6 +702,7 @@ Output:
 [RUN ] test_epsilon_candidate ... PASSED
 [RUN ] test_special_char_picker ... PASSED
 [RUN ] test_end_to_end_transliteration ... PASSED
+[RUN ] test_retaining_cycled_candidate_across_typing ... PASSED
 [RUN ] test_token_trie_longest_match ... PASSED
 [RUN ] test_trie_matches_bruteforce_scan ... PASSED
 [RUN ] test_context_analyzer_flags ... PASSED
@@ -720,7 +721,7 @@ Output:
 [RUN ] test_shipped_layout_is_complete ... PASSED
 
 ----------------------------------------
-Results: 24/24 passed
+Results: 25/25 passed
 ========================================
 ```
 
