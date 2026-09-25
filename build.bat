@@ -6,20 +6,22 @@ echo [BUILD] Building Shobdomala using g++...
 if not exist bin mkdir bin
 if not exist bin\config mkdir bin\config
 copy /Y config\phonetic_rules.json bin\config\phonetic_rules.json >nul
+copy /Y config\exceptions.json bin\config\exceptions.json >nul
+copy /Y config\layout_probhat.json bin\config\layout_probhat.json >nul
 
-set CXX_FLAGS=-std=c++17 -O2 -Iinclude -Ithird_party -luser32
-set CORE_SRCS=src\core\CandidateResolver.cpp src\core\InputBuffer.cpp src\core\PhoneticEngine.cpp src\core\SpecialCharPicker.cpp src\core\SymbolTable.cpp src\core\Tokenizer.cpp src\core\UnicodeComposer.cpp
+set CXX_FLAGS=-std=c++17 -Wall -Wextra -O2 -Iinclude -Ithird_party
+set CORE_SRCS=src\core\CandidateResolver.cpp src\core\ContextAnalyzer.cpp src\core\ExceptionDictionary.cpp src\core\FixedLayoutEngine.cpp src\core\InputBuffer.cpp src\core\PhoneticEngine.cpp src\core\SpecialCharPicker.cpp src\core\SymbolTable.cpp src\core\TokenContext.cpp src\core\Tokenizer.cpp src\core\TokenTrie.cpp src\core\UnicodeComposer.cpp
 set NATIVE_SRCS=src\native\InputInjector.cpp src\native\KeyboardHook.cpp src\native\KeyboardState.cpp
 
 echo [BUILD] Compiling shobdomala.exe...
-g++ %CXX_FLAGS% -o bin\shobdomala.exe src\main.cpp %CORE_SRCS% %NATIVE_SRCS%
+g++ %CXX_FLAGS% -o bin\shobdomala.exe src\main.cpp %CORE_SRCS% %NATIVE_SRCS% -luser32
 if %ERRORLEVEL% neq 0 (
     echo [ERROR] Failed to compile shobdomala.exe
     exit /b %ERRORLEVEL%
 )
 
 echo [BUILD] Compiling shobdomala_tests.exe...
-g++ %CXX_FLAGS% -o bin\shobdomala_tests.exe tests\test_main.cpp %CORE_SRCS%
+g++ %CXX_FLAGS% -Itests -o bin\shobdomala_tests.exe tests\test_main.cpp %CORE_SRCS%
 if %ERRORLEVEL% neq 0 (
     echo [ERROR] Failed to compile shobdomala_tests.exe
     exit /b %ERRORLEVEL%
@@ -27,4 +29,8 @@ if %ERRORLEVEL% neq 0 (
 
 echo [BUILD] Build completed successfully in .\bin\
 echo [RUN] Running unit tests...
-bin\shobdomala_tests.exe
+pushd bin
+shobdomala_tests.exe
+set TEST_RESULT=%ERRORLEVEL%
+popd
+exit /b %TEST_RESULT%
