@@ -1,0 +1,38 @@
+{
+  "_comment": "Whole-word overrides, checked before the rule pipeline runs. Two uses: (1) words whose written form contains something nobody types phonetically, (2) English words that must pass through untouched, which map to themselves. Lookup is exact first, then case-insensitive.",
+
+  "words": {
+    "dhonnobad": "ধন্যবাদ",
+    "dhonyobad": "ধন্যবাদ",
+    "bidyaloy": "বিদ্যালয়",
+    "biswabidyaloy": "বিশ্ববিদ্যালয়",
+    "jadavpur": "যাদবপুর",
+    "kolkata": "কলকাতা",
+    "kolikata": "কলিকাতা",
+    "bangladesh": "বাংলাদেশ",
+    "poschimbongo": "পশ্চিমবঙ্গ",
+    "namoshkar": "নমস্কার",
+    "shubheccha": "শুভেচ্ছা",
+    "bissho": "বিশ্ব",
+    "sasthyo": "স্বাস্থ্য",
+    "biggan": "বিজ্ঞান",
+    "prokoushol": "প্রকৌশল",
+    "chhatro": "ছাত্র",
+    "kotha": "কথা",
+    "sonar": "সোনার",
+
+    "download": "download",
+    "upload": "upload",
+    "email": "email",
+    "file": "file",
+    "software": "software",
+    "hardware": "hardware",
+    "internet": "internet",
+    "computer": "computer",
+    "keyboard": "keyboard",
+    "unicode": "unicode",
+    "windows": "windows",
+    "github": "github",
+    "ok": "ok"
+  }
+}
