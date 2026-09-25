@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <string>
 
 /**
@@ -60,6 +61,16 @@ public:
     void setLivePreview(bool enabled);
     void toggleLivePreview();
 
+    /**
+     * @brief Called whenever the mode or the live-preview switch changes.
+     *
+     * Mode can change from two directions - a global hotkey handled inside the hook, or
+     * the tray menu - and the tray icon has to show the truth either way. A callback keeps
+     * that one-way: state announces, the UI listens. The alternative, polling on a timer,
+     * would make the icon lag behind the keystroke that changed it.
+     */
+    void setOnChanged(std::function<void()> callback) { m_onChanged = std::move(callback); }
+
     // Centralized shortcut definitions
     static constexpr int TOGGLE_VK       = 'B';
     static constexpr int CYCLE_VK        = 0x20; // VK_SPACE
@@ -69,6 +80,9 @@ public:
 
 private:
     KeyboardState() = default;
+    void notifyChanged() const { if (m_onChanged) m_onChanged(); }
+
     InputMode m_mode = InputMode::ENGLISH;
     bool m_livePreview = true;
+    std::function<void()> m_onChanged;
 };
