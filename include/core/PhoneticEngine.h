@@ -78,6 +78,32 @@ public:
     std::string getActiveComposedString() const;
 
     /**
+     * @brief Index of the rightmost token in the active buffer that has alternatives.
+     *
+     * This is the token cycleActiveCandidate() acts on first, and therefore the one the
+     * user is deciding about right now. The UI shows its options.
+     *
+     * @return The index, or -1 when nothing in the buffer is ambiguous.
+     */
+    int activeAmbiguousTokenIndex() const;
+
+    /// The alternatives for activeAmbiguousTokenIndex(), or empty when there are none.
+    std::vector<std::string> activeCandidateOptions() const;
+
+    /// Which alternative is currently chosen for activeAmbiguousTokenIndex().
+    size_t activeCandidateSelection() const;
+
+    /**
+     * @brief Chooses an alternative directly, rather than cycling to it.
+     *
+     * Needed because the candidate window lets the user click the option they want.
+     * Cycling is fine for two options and tedious for five.
+     *
+     * @return False if either index is out of range, in which case nothing changes.
+     */
+    bool setActiveSelection(size_t tokenIndex, size_t optionIndex);
+
+    /**
      * @brief Flushes the active candidates, returning the composed string and clearing active state.
      * Preserves any candidate selections made during typing or candidate cycling.
      */

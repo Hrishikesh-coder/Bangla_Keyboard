@@ -174,6 +174,43 @@ std::string PhoneticEngine::getActiveComposedString() const {
     return m_composer.compose(m_activeCandidates);
 }
 
+int PhoneticEngine::activeAmbiguousTokenIndex() const {
+    for (size_t i = m_activeCandidates.size(); i > 0; --i) {
+        if (m_activeCandidates[i - 1].isAmbiguous()) {
+            return static_cast<int>(i - 1);
+        }
+    }
+    return -1;
+}
+
+std::vector<std::string> PhoneticEngine::activeCandidateOptions() const {
+    const int index = activeAmbiguousTokenIndex();
+    if (index < 0) {
+        return {};
+    }
+    return m_activeCandidates[static_cast<size_t>(index)].options;
+}
+
+size_t PhoneticEngine::activeCandidateSelection() const {
+    const int index = activeAmbiguousTokenIndex();
+    if (index < 0) {
+        return 0;
+    }
+    return m_activeCandidates[static_cast<size_t>(index)].selectedIndex;
+}
+
+bool PhoneticEngine::setActiveSelection(size_t tokenIndex, size_t optionIndex) {
+    if (tokenIndex >= m_activeCandidates.size()) {
+        return false;
+    }
+    Candidate& candidate = m_activeCandidates[tokenIndex];
+    if (optionIndex >= candidate.options.size()) {
+        return false;
+    }
+    candidate.selectedIndex = optionIndex;
+    return true;
+}
+
 std::string PhoneticEngine::flushActive() {
     std::string result = getActiveComposedString();
     clearActive();
