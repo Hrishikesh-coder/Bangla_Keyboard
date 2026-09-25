@@ -1,44 +1,163 @@
 {
-  "a": ["অ", "আ", ""],
-  "aa": ["আ"],
-  "i": ["ই", "ঈ"],
-  "ii": ["ঈ"],
-  "u": ["উ", "ঊ"],
-  "uu": ["ঊ"],
-  "ri": ["ঋ"],
-  "e": ["এ", "ঐ"],
-  "oi": ["ঐ"],
-  "ai": ["ঐ"],
-  "o": ["ও", "ঔ"],
-  "ou": ["ঔ"],
-  "au": ["ঔ"],
-  "k": ["ক"],
-  "kh": ["খ"],
-  "g": ["গ"],
-  "gh": ["ঘ"],
-  "ng": ["ঙ", "ং"],
-  "ch": ["চ", "ছ"],
-  "chh": ["ছ"],
-  "j": ["জ", "য"],
-  "jh": ["ঝ"],
-  "t": ["ত", "ট"],
-  "th": ["থ", "ঠ"],
-  "d": ["দ", "ড"],
-  "dh": ["ধ", "ঢ"],
-  "n": ["ন", "ণ"],
-  "p": ["প"],
-  "ph": ["ফ"],
-  "f": ["ফ"],
-  "b": ["ব"],
-  "bh": ["ভ"],
-  "v": ["ভ"],
-  "m": ["ম"],
-  "r": ["র"],
-  "l": ["ল"],
-  "sh": ["শ", "ষ", "স"],
-  "s": ["স", "শ", "ষ"],
-  "h": ["হ"],
-  "y": ["য়", "য"],
-  "z": ["য", "জ"],
-  "w": ["ও", "য়"]
+  "_comment": "Shobdomala phonetic rules. Keys starting with '_' are metadata and ignored. A value may be a string (one candidate), an array (ordered candidates, index 0 is the default), or an object with 'class', 'candidates' and 'context'. Context variants are tested in order; the first whose 'when' flags are all satisfied wins. Available flags: word_start, word_end, after_consonant, after_vowel, after_modifier, before_consonant, before_vowel, before_modifier.",
+  "_convention": "Lowercase o is the inherent vowel: 'kol' gives কল, 'rong' gives রং. Capital O is an explicit ও/ো: 'sOnar' gives সোনার. Capitals otherwise select the retroflex or alternate letter: T=ট D=ড N=ণ S=শ Sh=ষ R=ড় Rh=ঢ়.",
+
+  "a":  { "class": "vowel", "candidates": ["আ", "অ", ""] },
+  "aa": { "class": "vowel", "candidates": ["আ"] },
+  "A":  { "class": "vowel", "candidates": ["আ", "অ"] },
+
+  "i":  { "class": "vowel", "candidates": ["ই", "ঈ"] },
+  "ii": { "class": "vowel", "candidates": ["ঈ"] },
+  "ee": { "class": "vowel", "candidates": ["ঈ", "ই"] },
+  "I":  { "class": "vowel", "candidates": ["ঈ", "ই"] },
+
+  "u":  { "class": "vowel", "candidates": ["উ", "ঊ"] },
+  "uu": { "class": "vowel", "candidates": ["ঊ"] },
+  "oo": { "class": "vowel", "candidates": ["ঊ", "উ"] },
+  "U":  { "class": "vowel", "candidates": ["ঊ", "উ"] },
+
+  "ri":  { "class": "vowel", "candidates": ["ঋ"] },
+  "rri": { "class": "vowel", "candidates": ["ঋ"] },
+
+  "e": { "class": "vowel", "candidates": ["এ", "ঐ"] },
+  "E": { "class": "vowel", "candidates": ["ঐ", "এ"] },
+
+  "oi": {
+    "class": "vowel",
+    "candidates": ["ঐ"],
+    "context": [
+      { "when": ["after_consonant"], "candidates": ["অই", "ওই", "ঐ"] }
+    ]
+  },
+  "ai": {
+    "class": "vowel",
+    "candidates": ["ঐ"],
+    "context": [
+      { "when": ["after_consonant"], "candidates": ["আই", "ঐ"] }
+    ]
+  },
+
+  "o": {
+    "_note": "অ is the inherent-vowel marker. The composer emits nothing for অ after a consonant but does clear the consonant state, so 'rong' gives রং and not রোং, while 'kolm' still gives কল্ম and not ক্লম. Type capital O (or cycle) for an explicit ো.",
+    "class": "vowel",
+    "candidates": ["অ", "ও"]
+  },
+  "O": { "class": "vowel", "candidates": ["ও"] },
+
+  "ou": {
+    "class": "vowel",
+    "candidates": ["ঔ"],
+    "context": [
+      { "when": ["after_consonant"], "candidates": ["আউ", "ঔ"] }
+    ]
+  },
+  "au": {
+    "class": "vowel",
+    "candidates": ["ঔ"],
+    "context": [
+      { "when": ["after_consonant"], "candidates": ["আউ", "ঔ"] }
+    ]
+  },
+
+  "k":   { "class": "consonant", "candidates": ["ক"] },
+  "K":   { "class": "consonant", "candidates": ["ক"] },
+  "kh":  { "class": "consonant", "candidates": ["খ"] },
+  "Kh":  { "class": "consonant", "candidates": ["খ"] },
+  "kkh": { "class": "consonant", "candidates": ["ক্ষ"] },
+  "q":   { "class": "consonant", "candidates": ["ক"] },
+  "Q":   { "class": "consonant", "candidates": ["ক"] },
+  "x":   { "class": "consonant", "candidates": ["ক্স", "ক্ষ"] },
+  "X":   { "class": "consonant", "candidates": ["ক্স", "ক্ষ"] },
+
+  "g":  { "class": "consonant", "candidates": ["গ"] },
+  "G":  { "class": "consonant", "candidates": ["গ"] },
+  "gh": { "class": "consonant", "candidates": ["ঘ"] },
+  "Gh": { "class": "consonant", "candidates": ["ঘ"] },
+
+  "ng": {
+    "class": "consonant",
+    "candidates": ["ঙ", "ং"],
+    "context": [
+      { "when": ["before_consonant"], "candidates": ["ং", "ঙ"] },
+      { "when": ["word_end"],         "candidates": ["ং", "ঙ"] }
+    ]
+  },
+  "Ng": { "class": "consonant", "candidates": ["ঙ", "ং"] },
+  "NG": { "class": "consonant", "candidates": ["ঞ"] },
+
+  "c":   { "class": "consonant", "candidates": ["চ"] },
+  "C":   { "class": "consonant", "candidates": ["চ"] },
+  "ch":  { "class": "consonant", "candidates": ["চ", "ছ"] },
+  "Ch":  { "class": "consonant", "candidates": ["ছ"] },
+  "chh": { "class": "consonant", "candidates": ["ছ"] },
+
+  "j":  { "class": "consonant", "candidates": ["জ", "য"] },
+  "J":  { "class": "consonant", "candidates": ["জ"] },
+  "jh": { "class": "consonant", "candidates": ["ঝ"] },
+  "Jh": { "class": "consonant", "candidates": ["ঝ"] },
+
+  "T":  { "class": "consonant", "candidates": ["ট"] },
+  "Th": { "class": "consonant", "candidates": ["ঠ"] },
+  "D":  { "class": "consonant", "candidates": ["ড"] },
+  "Dh": { "class": "consonant", "candidates": ["ঢ"] },
+  "N":  { "class": "consonant", "candidates": ["ণ"] },
+
+  "t":  { "class": "consonant", "candidates": ["ত", "ট"] },
+  "th": { "class": "consonant", "candidates": ["থ", "ঠ"] },
+  "d":  { "class": "consonant", "candidates": ["দ", "ড"] },
+  "dh": { "class": "consonant", "candidates": ["ধ", "ঢ"] },
+  "n":  { "class": "consonant", "candidates": ["ন", "ণ"] },
+
+  "p":  { "class": "consonant", "candidates": ["প"] },
+  "P":  { "class": "consonant", "candidates": ["প"] },
+  "ph": { "class": "consonant", "candidates": ["ফ"] },
+  "Ph": { "class": "consonant", "candidates": ["ফ"] },
+  "f":  { "class": "consonant", "candidates": ["ফ"] },
+  "F":  { "class": "consonant", "candidates": ["ফ"] },
+
+  "b":  { "class": "consonant", "candidates": ["ব"] },
+  "B":  { "class": "consonant", "candidates": ["ব"] },
+  "bh": { "class": "consonant", "candidates": ["ভ"] },
+  "Bh": { "class": "consonant", "candidates": ["ভ"] },
+  "v":  { "class": "consonant", "candidates": ["ভ"] },
+  "V":  { "class": "consonant", "candidates": ["ভ"] },
+
+  "m":  { "class": "consonant", "candidates": ["ম"] },
+  "M":  { "class": "consonant", "candidates": ["ম"] },
+
+  "z":  { "class": "consonant", "candidates": ["য", "জ"] },
+  "Z":  { "class": "consonant", "candidates": ["য"] },
+
+  "r":  { "class": "consonant", "candidates": ["র"] },
+  "R":  { "class": "consonant", "candidates": ["ড়"] },
+  "Rh": { "class": "consonant", "candidates": ["ঢ়"] },
+
+  "l":  { "class": "consonant", "candidates": ["ল"] },
+  "L":  { "class": "consonant", "candidates": ["ল"] },
+
+  "s":  { "class": "consonant", "candidates": ["স", "শ", "ষ"] },
+  "S":  { "class": "consonant", "candidates": ["শ", "ষ", "স"] },
+  "sh": { "class": "consonant", "candidates": ["শ", "ষ", "স"] },
+  "Sh": { "class": "consonant", "candidates": ["ষ", "শ"] },
+
+  "h":  { "class": "consonant", "candidates": ["হ"] },
+  "H":  { "class": "consonant", "candidates": ["হ"] },
+
+  "y": {
+    "class": "consonant",
+    "candidates": ["য়", "য"],
+    "context": [
+      { "when": ["after_consonant"], "candidates": ["\u09CDয", "য়"] }
+    ]
+  },
+  "Y": { "class": "consonant", "candidates": ["য়"] },
+
+  "w": {
+    "class": "consonant",
+    "candidates": ["ও", "য়"],
+    "context": [
+      { "when": ["after_consonant"], "candidates": ["\u09CDব", "ও"] }
+    ]
+  },
+  "W": { "class": "consonant", "candidates": ["ও"] }
 }
