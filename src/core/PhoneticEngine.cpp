@@ -1,22 +1,32 @@
 #include "core/PhoneticEngine.h"
 
+#include <cctype>
+#include <sstream>
+
 PhoneticEngine::PhoneticEngine()
     : m_tokenizer(std::make_unique<Tokenizer>(m_symbolTable)),
+      m_analyzer(std::make_unique<ContextAnalyzer>(m_symbolTable)),
       m_resolver(std::make_unique<DefaultCandidateResolver>()) {
 }
 
 PhoneticEngine::PhoneticEngine(std::unique_ptr<ICandidateResolver> resolver)
     : m_tokenizer(std::make_unique<Tokenizer>(m_symbolTable)),
+      m_analyzer(std::make_unique<ContextAnalyzer>(m_symbolTable)),
       m_resolver(std::move(resolver)) {
     if (!m_resolver) {
         m_resolver = std::make_unique<DefaultCandidateResolver>();
     }
 }
 
+void PhoneticEngine::rebuildPipeline() {
+    m_tokenizer = std::make_unique<Tokenizer>(m_symbolTable);
+    m_analyzer = std::make_unique<ContextAnalyzer>(m_symbolTable);
+}
+
 bool PhoneticEngine::loadRules(const std::string& jsonFilePath) {
     bool ok = m_symbolTable.loadFromFile(jsonFilePath);
     if (ok) {
-        m_tokenizer = std::make_unique<Tokenizer>(m_symbolTable);
+        rebuildPipeline();
     }
     return ok;
 }
@@ -24,9 +34,17 @@ bool PhoneticEngine::loadRules(const std::string& jsonFilePath) {
 bool PhoneticEngine::loadRulesFromString(const std::string& jsonString) {
     bool ok = m_symbolTable.loadFromString(jsonString);
     if (ok) {
-        m_tokenizer = std::make_unique<Tokenizer>(m_symbolTable);
+        rebuildPipeline();
     }
     return ok;
+}
+
+bool PhoneticEngine::loadExceptions(const std::string& jsonFilePath) {
+    return m_exceptions.loadFromFile(jsonFilePath);
+}
+
+bool PhoneticEngine::loadExceptionsFromString(const std::string& jsonString) {
+    return m_exceptions.loadFromString(jsonString);
 }
 
 std::vector<Candidate> PhoneticEngine::generateCandidates(const std::string& romanInput) {
@@ -35,23 +53,28 @@ std::vector<Candidate> PhoneticEngine::generateCandidates(const std::string& rom
         return candidates;
     }
 
+    // Pass 1: longest-match-first segmentation.
     std::vector<std::string> tokens = m_tokenizer->tokenize(romanInput);
-    candidates.reserve(tokens.size());
 
-    for (const auto& tok : tokens) {
-        const auto* opts = m_symbolTable.lookup(tok);
+    // Pass 2: annotate each token with its surrounding context, before any candidate is chosen.
+    std::vector<uint32_t> contexts = m_analyzer->analyze(tokens);
+
+    candidates.reserve(tokens.size());
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        const auto* opts = m_symbolTable.lookupContextual(tokens[i], contexts[i]);
         if (opts && !opts->empty()) {
-            candidates.emplace_back(tok, *opts, 0);
+            candidates.emplace_back(tokens[i], *opts, 0);
         } else {
-            // Unregistered token or punctuation/symbol: candidate option is the token itself
-            candidates.emplace_back(tok, std::vector<std::string>{tok}, 0);
+            // Unregistered token, or a rule whose contextual variant is empty: emit the
+            // Roman text unchanged so punctuation and digits survive.
+            candidates.emplace_back(tokens[i], std::vector<std::string>{tokens[i]}, 0);
         }
     }
 
-    // Resolve initial candidate indices
+    // The resolver still owns the final index choice within the context-selected list,
+    // so a future dictionary- or frequency-driven resolver plugs in here unchanged.
     for (size_t i = 0; i < candidates.size(); ++i) {
-        size_t chosenIndex = m_resolver->resolve(candidates[i], i, candidates);
-        candidates[i].selectedIndex = chosenIndex;
+        candidates[i].selectedIndex = m_resolver->resolve(candidates[i], i, candidates);
     }
 
     return candidates;
@@ -61,8 +84,41 @@ std::string PhoneticEngine::transliterate(const std::string& romanInput) {
     if (romanInput.empty()) {
         return "";
     }
+
+    // Whole-word overrides win over the rules. This is also how English words are kept
+    // verbatim: they map to themselves in exceptions.json.
+    std::string override;
+    if (m_exceptions.lookup(romanInput, override)) {
+        return override;
+    }
+
     std::vector<Candidate> candidates = generateCandidates(romanInput);
     return m_composer.compose(candidates);
+}
+
+std::string PhoneticEngine::transliterateText(const std::string& romanText) {
+    std::string out;
+    std::string word;
+
+    auto flush = [&]() {
+        if (!word.empty()) {
+            out += transliterate(word);
+            word.clear();
+        }
+    };
+
+    for (char ch : romanText) {
+        // A character that starts no registered token is a word boundary.
+        std::string single(1, ch);
+        if (m_symbolTable.hasToken(single) || std::isalpha(static_cast<unsigned char>(ch))) {
+            word += ch;
+        } else {
+            flush();
+            out += ch;
+        }
+    }
+    flush();
+    return out;
 }
 
 void PhoneticEngine::updateActiveBuffer(const std::string& romanBuffer) {
@@ -126,4 +182,31 @@ std::string PhoneticEngine::flushActive() {
 
 void PhoneticEngine::clearActive() {
     m_activeCandidates.clear();
+}
+
+std::string PhoneticEngine::explain(const std::string& romanInput) {
+    std::ostringstream out;
+
+    std::string override;
+    if (m_exceptions.lookup(romanInput, override)) {
+        out << "  exception dictionary override: \"" << romanInput << "\" => \"" << override << "\"\n";
+        return out.str();
+    }
+
+    std::vector<std::string> tokens = m_tokenizer->tokenize(romanInput);
+    std::vector<uint32_t> contexts = m_analyzer->analyze(tokens);
+    std::vector<Candidate> candidates = generateCandidates(romanInput);
+
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        out << "  \"" << tokens[i] << "\""
+            << "  class=" << tokenClassName(m_symbolTable.classOf(tokens[i]))
+            << "  context=" << describeContext(contexts[i])
+            << "  -> \"" << (i < candidates.size() ? candidates[i].selected() : std::string()) << "\"";
+        if (i < candidates.size() && candidates[i].isAmbiguous()) {
+            out << "  (" << candidates[i].options.size() << " candidates)";
+        }
+        out << "\n";
+    }
+    out << "  composed: " << m_composer.compose(candidates) << "\n";
+    return out.str();
 }
