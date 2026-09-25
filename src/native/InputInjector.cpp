@@ -92,6 +92,92 @@ size_t InputInjector::injectText(const std::string& utf8Text) {
     return sent / 2;
 }
 
+size_t InputInjector::utf16UnitCount(const std::string& utf8Text) {
+    if (utf8Text.empty()) {
+        return 0;
+    }
+    int wideLen = MultiByteToWideChar(CP_UTF8, 0, utf8Text.data(),
+                                      static_cast<int>(utf8Text.size()), nullptr, 0);
+    return wideLen > 0 ? static_cast<size_t>(wideLen) : 0;
+}
+
+size_t InputInjector::injectBackspaces(size_t count) {
+    if (count == 0) {
+        return 0;
+    }
+
+    std::vector<INPUT> inputs;
+    inputs.reserve(count * 2);
+
+    for (size_t i = 0; i < count; ++i) {
+        INPUT down = {};
+        down.type = INPUT_KEYBOARD;
+        down.ki.wVk = VK_BACK;
+        inputs.push_back(down);
+
+        INPUT up = {};
+        up.type = INPUT_KEYBOARD;
+        up.ki.wVk = VK_BACK;
+        up.ki.dwFlags = KEYEVENTF_KEYUP;
+        inputs.push_back(up);
+    }
+
+    UINT sent = SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
+    return sent / 2;
+}
+
+size_t InputInjector::replaceText(size_t previousUnits, const std::string& utf8Text) {
+    std::wstring wideStr;
+    if (!utf8Text.empty()) {
+        int wideLen = MultiByteToWideChar(CP_UTF8, 0, utf8Text.data(),
+                                          static_cast<int>(utf8Text.size()), nullptr, 0);
+        if (wideLen > 0) {
+            wideStr.resize(static_cast<size_t>(wideLen));
+            MultiByteToWideChar(CP_UTF8, 0, utf8Text.data(), static_cast<int>(utf8Text.size()),
+                                &wideStr[0], wideLen);
+        }
+    }
+
+    if (previousUnits == 0 && wideStr.empty()) {
+        return 0;
+    }
+
+    // One batch: backspaces first, then the replacement characters. SendInput guarantees
+    // the events in a single call are not interleaved with other input.
+    std::vector<INPUT> inputs;
+    inputs.reserve((previousUnits + wideStr.size()) * 2);
+
+    for (size_t i = 0; i < previousUnits; ++i) {
+        INPUT down = {};
+        down.type = INPUT_KEYBOARD;
+        down.ki.wVk = VK_BACK;
+        inputs.push_back(down);
+
+        INPUT up = {};
+        up.type = INPUT_KEYBOARD;
+        up.ki.wVk = VK_BACK;
+        up.ki.dwFlags = KEYEVENTF_KEYUP;
+        inputs.push_back(up);
+    }
+
+    for (wchar_t ch : wideStr) {
+        INPUT down = {};
+        down.type = INPUT_KEYBOARD;
+        down.ki.wScan = ch;
+        down.ki.dwFlags = KEYEVENTF_UNICODE;
+        inputs.push_back(down);
+
+        INPUT up = {};
+        up.type = INPUT_KEYBOARD;
+        up.ki.wScan = ch;
+        up.ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+        inputs.push_back(up);
+    }
+
+    SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
+    return wideStr.size();
+}
+
 bool InputInjector::injectChar(wchar_t ch) {
     INPUT inputs[2] = {};
 
