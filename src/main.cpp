@@ -3,6 +3,10 @@
 #include "core/SpecialCharPicker.h"
 #include "native/KeyboardHook.h"
 #include "native/KeyboardState.h"
+#include "native/InputInjector.h"
+#include "ui/CandidateWindow.h"
+#include "ui/OnScreenKeyboard.h"
+#include "ui/TrayIcon.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -12,6 +16,66 @@
 #include <memory>
 
 static KeyboardHook g_hook;
+static TrayIcon g_tray;
+static CandidateWindow g_candidateWindow;
+static OnScreenKeyboard g_onScreenKeyboard;
+
+/// Shortcut reference, shown from the tray menu.
+static void showHelp() {
+    MessageBoxW(nullptr,
+        L"SHORTCUTS\n"
+        L"  Ctrl + Shift + B\t\tEnglish \u2194 Bengali (phonetic)\n"
+        L"  Ctrl + Shift + L\t\tCycle English / phonetic / fixed layout\n"
+        L"  Ctrl + Shift + Space\tCycle the highlighted candidate\n"
+        L"  Ctrl + Shift + D\t\tInsert \u09CE \u0982 \u0983 \u0981 \u099E\n"
+        L"  Ctrl + Shift + P\t\tLive preview on / off\n\n"
+        L"TYPING (phonetic)\n"
+        L"  Lowercase 'o' is the inherent vowel:\n"
+        L"      kol \u2192 \u0995\u09B2        rong \u2192 \u09B0\u0982\n"
+        L"  Capital O forces an explicit \u0993 / \u09CB:\n"
+        L"      sOnar \u2192 \u09B8\u09CB\u09A8\u09BE\u09B0\n"
+        L"  Omit the vowel entirely to stack a conjunct:\n"
+        L"      kl \u2192 \u0995\u09CD\u09B2\n"
+        L"  Capitals select the retroflex series:\n"
+        L"      T=\u099F  D=\u09A1  N=\u09A3  S=\u09B6  Sh=\u09B7  R=\u09A1\u09BC\n\n"
+        L"The overlay at your caret shows what was captured, what it composed,\n"
+        L"and the alternatives. Click an alternative to choose it.",
+        L"Shobdomala \u2014 shortcuts and typing guide",
+        MB_OK | MB_ICONINFORMATION);
+}
+
+/// Mirrors the current state onto the tray icon.
+static void syncTray() {
+    auto& state = KeyboardState::getInstance();
+    g_tray.refresh(state.getMode(), state.isLivePreviewEnabled(),
+                   g_onScreenKeyboard.isVisible());
+}
+
+static void handleTrayCommand(TrayIcon::Command command) {
+    auto& state = KeyboardState::getInstance();
+
+    switch (command) {
+        case TrayIcon::Command::ToggleMode:        state.toggleMode(); break;
+        case TrayIcon::Command::SetEnglish:        state.setMode(InputMode::ENGLISH); break;
+        case TrayIcon::Command::SetPhonetic:       state.setMode(InputMode::BENGALI_PHONETIC); break;
+        case TrayIcon::Command::SetFixedLayout:    state.setMode(InputMode::BENGALI_FIXED); break;
+        case TrayIcon::Command::ToggleLivePreview: state.toggleLivePreview(); break;
+
+        case TrayIcon::Command::ToggleOnScreenKeyboard:
+            g_onScreenKeyboard.toggle();
+            syncTray();
+            break;
+
+        case TrayIcon::Command::ShowHelp:
+            showHelp();
+            break;
+
+        case TrayIcon::Command::Exit:
+            g_hook.uninstall();
+            g_hook.stopMessageLoop();
+            break;
+    }
+}
 
 // Clean console Ctrl+C handler
 static BOOL WINAPI ConsoleCtrlHandler(DWORD dwCtrlType) {
@@ -155,6 +219,50 @@ int main(int argc, char* argv[]) {
     // Register console Ctrl+C handler for graceful hook cleanup
     SetConsoleCtrlHandler(ConsoleCtrlHandler, TRUE);
 
+    // ---------------------------------------------------------------------
+    // User interface
+    // ---------------------------------------------------------------------
+    // All three surfaces live on this thread, which is also the thread the keyboard hook
+    // runs its callback on. That is deliberate: the hook can update the overlay with a
+    // direct call, with no cross-thread marshalling on the keystroke path.
+    HINSTANCE instance = GetModuleHandleW(nullptr);
+
+    if (!g_candidateWindow.create(instance)) {
+        std::cerr << "[WARNING] Could not create the composition overlay; "
+                     "falling back to console-only preview." << std::endl;
+    }
+    g_candidateWindow.setOnSelect([](size_t optionIndex) {
+        KeyboardHook::selectCandidate(optionIndex);
+    });
+
+    if (!g_onScreenKeyboard.create(instance, &layout)) {
+        std::cerr << "[WARNING] Could not create the on-screen keyboard." << std::endl;
+    }
+    g_onScreenKeyboard.setOnKey([](const std::string& glyph) {
+        // The board never takes focus, so this lands in whatever the user was typing in.
+        InputInjector::injectText(glyph);
+    });
+
+    if (!g_tray.create(instance)) {
+        std::cerr << "[WARNING] Could not create the tray icon; "
+                     "use the keyboard shortcuts instead." << std::endl;
+    }
+    g_tray.setOnCommand(handleTrayCommand);
+
+    // Mode can change from a hotkey inside the hook or from the tray menu. Both routes
+    // end up here, so the icon can never disagree with the engine.
+    KeyboardState::getInstance().setOnChanged([]() {
+        syncTray();
+        auto& state = KeyboardState::getInstance();
+        g_tray.notify(L"Shobdomala",
+                      state.getMode() == InputMode::ENGLISH
+                          ? L"English"
+                          : (state.getMode() == InputMode::BENGALI_FIXED
+                                 ? L"Bengali \u2014 fixed layout"
+                                 : L"Bengali \u2014 phonetic"));
+    });
+    syncTray();
+
     // Print welcome banner and shortcuts summary
     std::cout << "========================================================\n"
               << "   Shobdomala: Windows Bengali Phonetic Input Prototype\n"
@@ -167,6 +275,10 @@ int main(int argc, char* argv[]) {
               << "  [Ctrl + Shift + P]     : Toggle live in-place preview\n"
               << "  [Ctrl + C]             : Exit Shobdomala cleanly\n"
               << "--------------------------------------------------------\n"
+              << "A composition overlay follows your caret while you type.\n"
+              << "The tray icon shows the current mode; right-click it for\n"
+              << "the on-screen keyboard and the typing guide.\n"
+              << "--------------------------------------------------------\n"
               << "Initial Mode:  " << KeyboardState::getInstance().getModeString() << "\n"
               << "Live preview:  "
               << (KeyboardState::getInstance().isLivePreviewEnabled() ? "ON" : "OFF")
@@ -175,7 +287,7 @@ int main(int argc, char* argv[]) {
               << "========================================================\n" << std::endl;
 
     // Install the low-level keyboard hook
-    if (!g_hook.install(&engine, &layout)) {
+    if (!g_hook.install(&engine, &layout, &g_candidateWindow)) {
         std::cerr << "[ERROR] Failed to install keyboard hook. Terminating." << std::endl;
         return 1;
     }
@@ -185,6 +297,9 @@ int main(int argc, char* argv[]) {
 
     // Clean uninstall upon exit
     g_hook.uninstall();
+    g_onScreenKeyboard.destroy();
+    g_candidateWindow.destroy();
+    g_tray.destroy();
     std::cout << "[MAIN] Program terminated cleanly." << std::endl;
     return 0;
 }

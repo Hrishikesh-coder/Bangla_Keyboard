@@ -89,6 +89,7 @@
 HHOOK KeyboardHook::s_hHook = nullptr;
 PhoneticEngine* KeyboardHook::s_engine = nullptr;
 FixedLayoutEngine* KeyboardHook::s_layout = nullptr;
+CandidateWindow* KeyboardHook::s_candidateWindow = nullptr;
 InputBuffer KeyboardHook::s_buffer;
 SpecialCharPicker KeyboardHook::s_specialPicker;
 DWORD KeyboardHook::s_threadId = 0;
@@ -99,13 +100,15 @@ KeyboardHook::~KeyboardHook() {
     uninstall();
 }
 
-bool KeyboardHook::install(PhoneticEngine* engine, FixedLayoutEngine* layout) {
+bool KeyboardHook::install(PhoneticEngine* engine, FixedLayoutEngine* layout,
+                           CandidateWindow* candidateWindow) {
     if (s_hHook != nullptr) {
         return true; // Already installed
     }
 
     s_engine = engine;
     s_layout = layout;
+    s_candidateWindow = candidateWindow;
     s_threadId = GetCurrentThreadId();
 
     HINSTANCE hInstance = GetModuleHandleW(nullptr);
@@ -132,6 +135,10 @@ void KeyboardHook::uninstall() {
         s_hHook = nullptr;
         s_engine = nullptr;
         s_layout = nullptr;
+        if (s_candidateWindow) {
+            s_candidateWindow->hide();
+        }
+        s_candidateWindow = nullptr;
         s_buffer.clear();
         s_previewUnits = 0;
         s_previewText.clear();
@@ -161,6 +168,43 @@ void KeyboardHook::stopMessageLoop() {
 // ---------------------------------------------------------------------------
 // Composition helpers
 // ---------------------------------------------------------------------------
+
+void KeyboardHook::refreshUi() {
+    if (!s_candidateWindow) {
+        return;
+    }
+
+    auto& state = KeyboardState::getInstance();
+
+    if (s_buffer.empty() || !s_engine) {
+        s_candidateWindow->hide();
+        return;
+    }
+
+    CandidateWindow::Content content;
+    content.roman = s_buffer.content();
+    content.composed = s_engine->getActiveComposedString();
+    content.candidates = s_engine->activeCandidateOptions();
+    content.selectedIndex = s_engine->activeCandidateSelection();
+    content.fixedMode = (state.getMode() == InputMode::BENGALI_FIXED);
+    content.modeLabel = content.fixedMode ? "FIXED" : "PHONETIC";
+
+    s_candidateWindow->update(content);
+}
+
+void KeyboardHook::selectCandidate(size_t optionIndex) {
+    if (!s_engine || s_buffer.empty()) {
+        return;
+    }
+    const int tokenIndex = s_engine->activeAmbiguousTokenIndex();
+    if (tokenIndex < 0) {
+        return;
+    }
+    if (s_engine->setActiveSelection(static_cast<size_t>(tokenIndex), optionIndex)) {
+        refreshPreview();
+        refreshUi();
+    }
+}
 
 void KeyboardHook::refreshPreview() {
     if (!s_engine || !KeyboardState::getInstance().isLivePreviewEnabled()) {
@@ -196,6 +240,11 @@ void KeyboardHook::commitBuffer() {
     s_buffer.clear();
     s_previewUnits = 0;
     s_previewText.clear();
+
+    // The word is decided: the overlay has nothing left to say.
+    if (s_candidateWindow) {
+        s_candidateWindow->hide();
+    }
 }
 
 std::string KeyboardHook::finalTextFor(const std::string& roman) {
@@ -226,6 +275,9 @@ void KeyboardHook::discardBuffer() {
     if (s_engine) s_engine->clearActive();
     s_previewUnits = 0;
     s_previewText.clear();
+    if (s_candidateWindow) {
+        s_candidateWindow->hide();
+    }
 }
 
 bool KeyboardHook::charFromKey(const KBDLLHOOKSTRUCT* kbd, char& out) {
@@ -362,6 +414,7 @@ LRESULT CALLBACK KeyboardHook::hookCallback(int nCode, WPARAM wParam, LPARAM lPa
                 std::cout << "[CANDIDATE CYCLE] " << s_buffer.content()
                           << " -> " << s_engine->getActiveComposedString() << std::endl;
                 refreshPreview();
+                refreshUi();
             }
         }
         return 1; // Consume
@@ -417,6 +470,7 @@ LRESULT CALLBACK KeyboardHook::hookCallback(int nCode, WPARAM wParam, LPARAM lPa
                 std::cout << "[BUFFER] \"" << s_buffer.content() << "\" -> "
                           << s_engine->getActiveComposedString() << std::endl;
                 refreshPreview();
+                refreshUi();
             }
         }
         return 1; // Consume both keydown and keyup for captured letters
@@ -438,6 +492,7 @@ LRESULT CALLBACK KeyboardHook::hookCallback(int nCode, WPARAM wParam, LPARAM lPa
                     std::cout << "[BACKSPACE] Buffer: \"" << s_buffer.content() << "\" -> "
                               << s_engine->getActiveComposedString() << std::endl;
                     refreshPreview();
+                    refreshUi();
                 }
             }
             return 1; // Consume backspace while buffer has content
@@ -472,6 +527,9 @@ LRESULT CALLBACK KeyboardHook::hookCallback(int nCode, WPARAM wParam, LPARAM lPa
                 s_buffer.clear();
                 s_previewUnits = 0;
                 s_previewText.clear();
+                if (s_candidateWindow) {
+                    s_candidateWindow->hide();
+                }
                 InputInjector::injectText(bengali);
             }
         }

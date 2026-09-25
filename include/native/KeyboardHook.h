@@ -5,6 +5,7 @@
 #include "core/SpecialCharPicker.h"
 #include "core/FixedLayoutEngine.h"
 #include "native/KeyboardState.h"
+#include "ui/CandidateWindow.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -35,7 +36,21 @@ public:
      * @param engine Phonetic engine used in BENGALI_PHONETIC mode. Must outlive the hook.
      * @param layout Optional fixed layout used in BENGALI_FIXED mode; may be null.
      */
-    bool install(PhoneticEngine* engine, FixedLayoutEngine* layout = nullptr);
+    bool install(PhoneticEngine* engine,
+                 FixedLayoutEngine* layout = nullptr,
+                 CandidateWindow* candidateWindow = nullptr);
+
+    /**
+     * @brief Applies a candidate the user picked by clicking a chip, and redraws.
+     *
+     * Static because the candidate window's callback has no object to call back into: the
+     * hook's state is process-wide by necessity, since a Win32 hook procedure is a plain
+     * function pointer.
+     */
+    static void selectCandidate(size_t optionIndex);
+
+    /// Pushes the current composition state into the candidate window.
+    static void refreshUi();
 
     /// Uninstalls the active hook.
     void uninstall();
@@ -80,6 +95,7 @@ private:
     static HHOOK s_hHook;
     static PhoneticEngine* s_engine;
     static FixedLayoutEngine* s_layout;
+    static CandidateWindow* s_candidateWindow;
     static InputBuffer s_buffer;
     static SpecialCharPicker s_specialPicker;
     static DWORD s_threadId;

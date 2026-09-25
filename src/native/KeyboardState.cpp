@@ -11,6 +11,7 @@ InputMode KeyboardState::getMode() const {
 
 void KeyboardState::setMode(InputMode mode) {
     m_mode = mode;
+    notifyChanged();
 }
 
 void KeyboardState::toggleMode() {
@@ -21,6 +22,7 @@ void KeyboardState::toggleMode() {
     } else {
         m_mode = InputMode::ENGLISH;
     }
+    notifyChanged();
 }
 
 void KeyboardState::cycleMode() {
@@ -29,6 +31,7 @@ void KeyboardState::cycleMode() {
         case InputMode::BENGALI_PHONETIC: m_mode = InputMode::BENGALI_FIXED;    break;
         case InputMode::BENGALI_FIXED:    m_mode = InputMode::ENGLISH;          break;
     }
+    notifyChanged();
 }
 
 const char* KeyboardState::getModeString() const {
@@ -50,8 +53,10 @@ bool KeyboardState::isLivePreviewEnabled() const {
 
 void KeyboardState::setLivePreview(bool enabled) {
     m_livePreview = enabled;
+    notifyChanged();
 }
 
 void KeyboardState::toggleLivePreview() {
     m_livePreview = !m_livePreview;
+    notifyChanged();
 }
