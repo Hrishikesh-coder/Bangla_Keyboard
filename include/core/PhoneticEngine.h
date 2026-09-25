@@ -2,18 +2,30 @@
 
 #include "SymbolTable.h"
 #include "Tokenizer.h"
+#include "ContextAnalyzer.h"
 #include "Candidate.h"
 #include "CandidateResolver.h"
+#include "ExceptionDictionary.h"
 #include "UnicodeComposer.h"
 #include <string>
 #include <vector>
 #include <memory>
 
 /**
- * @brief Main engine orchestrating Tokenizer, SymbolTable, CandidateResolver, and UnicodeComposer.
+ * @brief Main engine orchestrating the transliteration pipeline.
  *
- * Provides high-level transliteration of Roman input to Bengali Unicode text.
- * Also maintains state for candidate cycling on the active buffer.
+ * Full pipeline:
+ *
+ *   Roman input
+ *     -> ExceptionDictionary  (whole-word override? then we are done)
+ *     -> Tokenizer            (pass 1: longest-match-first segmentation, trie-backed)
+ *     -> ContextAnalyzer      (pass 2: annotate each token with its surroundings)
+ *     -> SymbolTable          (contextual candidate lookup)
+ *     -> CandidateResolver    (pick an index within the chosen candidate list)
+ *     -> UnicodeComposer      (viramas, matras, inherent vowel)
+ *     -> Bengali Unicode
+ *
+ * Also maintains state for candidate cycling on the active in-progress buffer.
  */
 class PhoneticEngine {
 public:
@@ -26,32 +38,43 @@ public:
     /// Loads phonetic rules directly from a JSON string.
     bool loadRulesFromString(const std::string& jsonString);
 
+    /// Loads whole-word exception overrides from a JSON file. Missing file is not an error.
+    bool loadExceptions(const std::string& jsonFilePath);
+
+    /// Loads whole-word exception overrides from a JSON string.
+    bool loadExceptionsFromString(const std::string& jsonString);
+
     /**
-     * @brief High-level one-shot transliteration.
-     * Takes a Roman input string (e.g. "shanti") and returns the composed Bengali string.
+     * @brief Transliterates a single Roman word into composed Bengali.
+     *
+     * Checks the exception dictionary first; falls back to the rule pipeline.
      */
     std::string transliterate(const std::string& romanInput);
 
     /**
+     * @brief Transliterates a whole line, splitting it into words at unregistered characters.
+     *
+     * Needed because exception overrides are whole-word: running transliterate() on a full
+     * sentence would never match "download" sitting between two spaces.
+     */
+    std::string transliterateText(const std::string& romanText);
+
+    /**
      * @brief Generates Candidate objects for the input string without final composition.
-     * Candidate options and initial selection indices are populated.
+     * Candidate options are already context-selected; selection indices are populated.
      */
     std::vector<Candidate> generateCandidates(const std::string& romanInput);
 
-    /**
-     * @brief Updates the active candidates for an ongoing input buffer.
-     */
+    /// Updates the active candidates for an ongoing input buffer.
     void updateActiveBuffer(const std::string& romanBuffer);
 
     /**
      * @brief Cycles the last ambiguous candidate in the active candidates list.
-     * @return True if a candidate was successfully cycled; false if no ambiguous candidate existed.
+     * @return True if a candidate was successfully cycled.
      */
     bool cycleActiveCandidate();
 
-    /**
-     * @brief Returns the composed Bengali string from the current active candidates list.
-     */
+    /// Returns the composed Bengali string from the current active candidates list.
     std::string getActiveComposedString() const;
 
     /**
@@ -63,14 +86,24 @@ public:
     /// Clears the active candidate state.
     void clearActive();
 
+    /// Human-readable derivation of a word: tokens, classes, contexts and chosen candidates.
+    std::string explain(const std::string& romanInput);
+
     // Accessors for testing and inspection
     const SymbolTable& getSymbolTable() const { return m_symbolTable; }
     SymbolTable& getSymbolTable() { return m_symbolTable; }
+    const ExceptionDictionary& getExceptions() const { return m_exceptions; }
+    ExceptionDictionary& getExceptions() { return m_exceptions; }
     const std::vector<Candidate>& getActiveCandidates() const { return m_activeCandidates; }
 
 private:
+    /// Rebuilds the tokenizer and analyzer after the symbol table changes.
+    void rebuildPipeline();
+
     SymbolTable m_symbolTable;
+    ExceptionDictionary m_exceptions;
     std::unique_ptr<Tokenizer> m_tokenizer;
+    std::unique_ptr<ContextAnalyzer> m_analyzer;
     std::unique_ptr<ICandidateResolver> m_resolver;
     UnicodeComposer m_composer;
 
