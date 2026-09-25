@@ -1,0 +1,34 @@
+{
+  "name": "Probhat-style (draft)",
+  "_status": "DRAFT TRANSCRIPTION. This map is complete and internally consistent - every Bengali letter, matra and sign is reachable - but it has not been checked key-for-key against the official Probhat chart published by the Bangladesh Computer Council. Verify it against the official chart before claiming Probhat compatibility in the report, or treat it as Shobdomala's own fixed layout. Changing it is a data edit, not a code change.",
+  "_hasant_key": "z - press it between two consonants to build a conjunct, e.g. k z S gives ক্ষ",
+
+  "map": {
+    "1": "১", "2": "২", "3": "৩", "4": "৪", "5": "৫",
+    "6": "৬", "7": "৭", "8": "৮", "9": "৯", "0": "০",
+
+    "q": "দ", "w": "ূ", "e": "ী", "r": "র", "t": "ট",
+    "y": "এ", "u": "ু", "i": "ি", "o": "ও", "p": "প",
+
+    "a": "া", "s": "স", "d": "ড", "f": "ত", "g": "গ",
+    "h": "হ", "j": "জ", "k": "ক", "l": "ল",
+
+    "z": "্", "x": "়", "c": "চ", "v": "আ", "b": "ব",
+    "n": "ন", "m": "ম",
+
+    "Q": "ধ", "W": "ঊ", "E": "ঐ", "R": "ড়", "T": "ঠ",
+    "Y": "ঈ", "U": "উ", "I": "ই", "O": "ঔ", "P": "ফ",
+
+    "A": "অ", "S": "শ", "D": "ঢ", "F": "থ", "G": "ঘ",
+    "H": "ঁ", "J": "ঝ", "K": "খ", "L": "ং",
+
+    "Z": "ঞ", "X": "ঢ়", "C": "ছ", "V": "ঋ", "B": "ভ",
+    "N": "ণ", "M": "ঙ",
+
+    ";": "ষ", ":": "ঃ",
+    "'": "ে", "\"": "ৈ",
+    "<": "ৃ", ">": "ো", "?": "ৌ",
+    ",": ",", ".": "।", "/": "/",
+    "`": "ৎ", "~": "য়", "\\": "য", "|": "\u09CDর"
+  }
+}
