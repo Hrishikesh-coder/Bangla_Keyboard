@@ -1,14 +1,31 @@
 # Build outputs
 bin/
 build/
+cmake-build-*/
+out/
 *.exe
 *.o
 *.obj
 *.pdb
 *.ilk
+*.lib
+*.a
+*.dll
 
-# IDE files
+# IDE and Editor files
 .vscode/
 .vs/
+.idea/
 *.sln
 *.vcxproj*
+*.user
+
+# Operating System files
+Thumbs.db
+[Dd]esktop.ini
+.DS_Store
+
+# Temporary & Log files
+*.log
+*.tmp
+*.bak
