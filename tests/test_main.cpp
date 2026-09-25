@@ -705,6 +705,43 @@ static bool test_punctuation_and_unknown_passthrough() {
     return true;
 }
 
+static bool test_direct_candidate_selection() {
+    // The candidate window lets the user click an option instead of cycling to it, so the
+    // engine has to expose which token is being decided and allow setting it directly.
+    PhoneticEngine engine;
+    TEST_ASSERT(loadProductionConfig(engine));
+
+    engine.updateActiveBuffer("sh");
+    TEST_ASSERT_EQ(engine.activeAmbiguousTokenIndex(), 0);
+
+    std::vector<std::string> options = engine.activeCandidateOptions();
+    TEST_ASSERT_EQ(options.size(), 3);
+    TEST_ASSERT_EQ(options[0], "শ");
+    TEST_ASSERT_EQ(engine.activeCandidateSelection(), 0);
+
+    // Jump straight to the third option rather than cycling twice.
+    TEST_ASSERT(engine.setActiveSelection(0, 2));
+    TEST_ASSERT_EQ(engine.getActiveComposedString(), std::string("স"));
+    TEST_ASSERT_EQ(engine.activeCandidateSelection(), 2);
+
+    // Out-of-range indices must be rejected without changing anything.
+    TEST_ASSERT(!engine.setActiveSelection(0, 99));
+    TEST_ASSERT(!engine.setActiveSelection(99, 0));
+    TEST_ASSERT_EQ(engine.getActiveComposedString(), std::string("স"));
+
+    // A buffer with nothing ambiguous reports no active token.
+    engine.updateActiveBuffer("k");
+    TEST_ASSERT_EQ(engine.activeAmbiguousTokenIndex(), -1);
+    TEST_ASSERT(engine.activeCandidateOptions().empty());
+
+    // The rightmost ambiguous token is the one being decided.
+    engine.updateActiveBuffer("shot");
+    const int index = engine.activeAmbiguousTokenIndex();
+    TEST_ASSERT(index > 0);
+
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Fixed layout engine
 // ---------------------------------------------------------------------------
@@ -805,6 +842,7 @@ int main() {
     RUN_TEST(test_unicode_conformance_sequences);
     RUN_TEST(test_candidate_cycling_end_to_end);
     RUN_TEST(test_punctuation_and_unknown_passthrough);
+    RUN_TEST(test_direct_candidate_selection);
     RUN_TEST(test_fixed_layout_engine);
     RUN_TEST(test_shipped_layout_is_complete);
 
