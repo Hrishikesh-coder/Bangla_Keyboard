@@ -25,14 +25,20 @@ NATIVE_SRCS = src/native/InputInjector.cpp \
               src/native/KeyboardHook.cpp \
               src/native/KeyboardState.cpp
 
+# Win32 GUI layer: tray icon, caret-following composition overlay, on-screen keyboard.
+UI_SRCS = src/ui/UiTheme.cpp \
+          src/ui/CandidateWindow.cpp \
+          src/ui/OnScreenKeyboard.cpp \
+          src/ui/TrayIcon.cpp
+
 TEST_SRCS = tests/test_main.cpp $(CORE_SRCS)
-APP_SRCS  = src/main.cpp $(CORE_SRCS) $(NATIVE_SRCS)
+APP_SRCS  = src/main.cpp $(CORE_SRCS) $(NATIVE_SRCS) $(UI_SRCS)
 
 CONFIGS = config/phonetic_rules.json config/exceptions.json config/layout_probhat.json
 
 ifeq ($(OS),Windows_NT)
     EXE      := .exe
-    LDFLAGS  := -luser32
+    LDFLAGS  := -luser32 -lgdi32 -lshell32
     MKDIR     = @if not exist "$(subst /,\,$1)" mkdir "$(subst /,\,$1)"
     COPYCFG   = @for %%f in ($(subst /,\,$(CONFIGS))) do @copy /Y "%%f" "bin\config\" >nul
     RMDIR     = @if exist bin rmdir /S /Q bin
