@@ -1,0 +1,14 @@
+# Build outputs
+bin/
+build/
+*.exe
+*.o
+*.obj
+*.pdb
+*.ilk
+
+# IDE files
+.vscode/
+.vs/
+*.sln
+*.vcxproj*
