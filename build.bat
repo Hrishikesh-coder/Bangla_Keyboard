@@ -12,9 +12,10 @@ copy /Y config\layout_probhat.json bin\config\layout_probhat.json >nul
 set CXX_FLAGS=-std=c++17 -Wall -Wextra -O2 -Iinclude -Ithird_party
 set CORE_SRCS=src\core\CandidateResolver.cpp src\core\ContextAnalyzer.cpp src\core\ExceptionDictionary.cpp src\core\FixedLayoutEngine.cpp src\core\InputBuffer.cpp src\core\PhoneticEngine.cpp src\core\SpecialCharPicker.cpp src\core\SymbolTable.cpp src\core\TokenContext.cpp src\core\Tokenizer.cpp src\core\TokenTrie.cpp src\core\UnicodeComposer.cpp
 set NATIVE_SRCS=src\native\InputInjector.cpp src\native\KeyboardHook.cpp src\native\KeyboardState.cpp
+set UI_SRCS=src\ui\UiTheme.cpp src\ui\CandidateWindow.cpp src\ui\OnScreenKeyboard.cpp src\ui\TrayIcon.cpp
 
 echo [BUILD] Compiling shobdomala.exe...
-g++ %CXX_FLAGS% -o bin\shobdomala.exe src\main.cpp %CORE_SRCS% %NATIVE_SRCS% -luser32
+g++ %CXX_FLAGS% -o bin\shobdomala.exe src\main.cpp %CORE_SRCS% %NATIVE_SRCS% %UI_SRCS% -luser32 -lgdi32 -lshell32
 if %ERRORLEVEL% neq 0 (
     echo [ERROR] Failed to compile shobdomala.exe
     exit /b %ERRORLEVEL%

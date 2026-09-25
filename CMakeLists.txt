@@ -33,6 +33,14 @@ set(NATIVE_SOURCES
     src/native/KeyboardState.cpp
 )
 
+# Win32 GUI layer: tray icon, composition overlay, on-screen keyboard.
+set(UI_SOURCES
+    src/ui/UiTheme.cpp
+    src/ui/CandidateWindow.cpp
+    src/ui/OnScreenKeyboard.cpp
+    src/ui/TrayIcon.cpp
+)
+
 # Main executable. The native layer is Win32-only, so it is only defined on Windows;
 # this keeps the engine and its tests buildable on Linux/macOS for CI.
 if(WIN32)
@@ -40,10 +48,11 @@ if(WIN32)
         src/main.cpp
         ${CORE_SOURCES}
         ${NATIVE_SOURCES}
+        ${UI_SOURCES}
     )
 
-    # Link User32 for Windows hooks and SendInput
-    target_link_libraries(shobdomala PRIVATE user32)
+    # user32: hooks and SendInput. gdi32: custom-drawn UI. shell32: tray icon.
+    target_link_libraries(shobdomala PRIVATE user32 gdi32 shell32)
 
     # Copy config directory to build output directory
     add_custom_command(TARGET shobdomala POST_BUILD
