@@ -67,25 +67,45 @@
  *    - Data returned:
  *      SHORT value where the most significant bit (0x8000) indicates whether the key
  *      is currently physically pressed down.
+ *
+ * 6. ToUnicodeEx
+ *    - What it does:
+ *      Translates a virtual-key code plus a keyboard state array into the Unicode
+ *      characters the key would normally produce under a given keyboard layout.
+ *    - Why we use it:
+ *      Fixed Bengali layouts map punctuation keys (; ' , . / ` \) as well as letters.
+ *      Deriving those from vkCode by hand would hardcode a US layout; ToUnicodeEx asks
+ *      the active layout instead.
+ *    - Important detail:
+ *      Called with dwFlags bit 2 (0x4) set, which tells Windows not to disturb the
+ *      current keyboard state. Without it, calling ToUnicodeEx from inside a low-level
+ *      hook corrupts dead-key sequences for every other application on the desktop.
+ *    - Data returned:
+ *      Number of characters written; negative for a dead key; 0 when the key produces
+ *      no character.
  * ============================================================================
  */
 
 HHOOK KeyboardHook::s_hHook = nullptr;
 PhoneticEngine* KeyboardHook::s_engine = nullptr;
+FixedLayoutEngine* KeyboardHook::s_layout = nullptr;
 InputBuffer KeyboardHook::s_buffer;
 SpecialCharPicker KeyboardHook::s_specialPicker;
 DWORD KeyboardHook::s_threadId = 0;
+size_t KeyboardHook::s_previewUnits = 0;
+std::string KeyboardHook::s_previewText;
 
 KeyboardHook::~KeyboardHook() {
     uninstall();
 }
 
-bool KeyboardHook::install(PhoneticEngine* engine) {
+bool KeyboardHook::install(PhoneticEngine* engine, FixedLayoutEngine* layout) {
     if (s_hHook != nullptr) {
         return true; // Already installed
     }
 
     s_engine = engine;
+    s_layout = layout;
     s_threadId = GetCurrentThreadId();
 
     HINSTANCE hInstance = GetModuleHandleW(nullptr);
@@ -111,7 +131,10 @@ void KeyboardHook::uninstall() {
         UnhookWindowsHookEx(s_hHook);
         s_hHook = nullptr;
         s_engine = nullptr;
+        s_layout = nullptr;
         s_buffer.clear();
+        s_previewUnits = 0;
+        s_previewText.clear();
         std::cout << "[KeyboardHook] Hook cleanly uninstalled." << std::endl;
     }
 }
@@ -135,6 +158,105 @@ void KeyboardHook::stopMessageLoop() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Composition helpers
+// ---------------------------------------------------------------------------
+
+void KeyboardHook::refreshPreview() {
+    if (!s_engine || !KeyboardState::getInstance().isLivePreviewEnabled()) {
+        return;
+    }
+
+    std::string composed = s_engine->getActiveComposedString();
+    if (composed == s_previewText) {
+        return; // Nothing changed on screen; do not churn the input stream.
+    }
+
+    s_previewUnits = InputInjector::replaceText(s_previewUnits, composed);
+    s_previewText = composed;
+}
+
+void KeyboardHook::commitBuffer() {
+    if (s_buffer.empty()) {
+        return;
+    }
+
+    const std::string roman = s_buffer.content();
+    const std::string finalText = finalTextFor(roman);
+
+    // The live preview is produced from the active candidate list, which does not consult
+    // the exception dictionary. When the two disagree - "dhonnobad" previews as ধোন্নোবাদ
+    // but commits as ধন্যবাদ - the preview is corrected here.
+    if (finalText != s_previewText) {
+        InputInjector::replaceText(s_previewUnits, finalText);
+    }
+
+    std::cout << "[COMMIT] \"" << roman << "\" ==> \"" << finalText << "\"" << std::endl;
+
+    s_buffer.clear();
+    s_previewUnits = 0;
+    s_previewText.clear();
+}
+
+std::string KeyboardHook::finalTextFor(const std::string& roman) {
+    if (!s_engine) {
+        return roman;
+    }
+
+    // A whole-word override wins over everything: it exists precisely for spellings the
+    // rules cannot derive, and for English words that must pass through untouched.
+    std::string overrideText;
+    if (s_engine->getExceptions().lookup(roman, overrideText)) {
+        s_engine->clearActive();
+        return overrideText;
+    }
+
+    // Otherwise compose from the active candidate list rather than re-running
+    // transliterate(). The active list carries whatever the user chose with
+    // Ctrl+Shift+Space; transliterate() would rebuild from index 0 and silently discard
+    // those selections. flushActive() also clears the active state.
+    return s_engine->flushActive();
+}
+
+void KeyboardHook::discardBuffer() {
+    if (s_previewUnits > 0) {
+        InputInjector::injectBackspaces(s_previewUnits);
+    }
+    s_buffer.clear();
+    if (s_engine) s_engine->clearActive();
+    s_previewUnits = 0;
+    s_previewText.clear();
+}
+
+bool KeyboardHook::charFromKey(const KBDLLHOOKSTRUCT* kbd, char& out) {
+    // Build a minimal keyboard state rather than calling GetKeyboardState: inside a
+    // low-level hook the calling thread's state is not the focused thread's state, so
+    // GetKeyboardState reports stale modifiers.
+    BYTE keyState[256] = {0};
+    if (GetAsyncKeyState(VK_SHIFT) & 0x8000) {
+        keyState[VK_SHIFT] = 0x80;
+    }
+    if (GetKeyState(VK_CAPITAL) & 0x0001) {
+        keyState[VK_CAPITAL] = 0x01;
+    }
+
+    WCHAR buffer[8] = {0};
+    // Flag 0x4 = do not modify keyboard state. Required inside a hook, or dead keys
+    // break system-wide.
+    int written = ToUnicodeEx(kbd->vkCode, kbd->scanCode, keyState, buffer, 8, 0x4,
+                              GetKeyboardLayout(0));
+
+    if (written == 1 && buffer[0] > 0 && buffer[0] < 128) {
+        out = static_cast<char>(buffer[0]);
+        return true;
+    }
+    return false;
+}
+
+// ---------------------------------------------------------------------------
+// Hook callback
+// ---------------------------------------------------------------------------
+
 LRESULT CALLBACK KeyboardHook::hookCallback(int nCode, WPARAM wParam, LPARAM lParam) {
     // If nCode is less than zero, the hook procedure must pass the message
     // to CallNextHookEx without further processing and should return the value.
@@ -148,7 +270,8 @@ LRESULT CALLBACK KeyboardHook::hookCallback(int nCode, WPARAM wParam, LPARAM lPa
     // Step 1: Prevent recursion from our own injected events
     // ------------------------------------------------------------------------
     // When SendInput synthesizes events, the OS sets the LLKHF_INJECTED flag.
-    // If set, pass through immediately so we don't process our own output!
+    // If set, pass through immediately so we don't process our own output! This now
+    // covers the backspaces used for live preview as well as the Bengali characters.
     if (kbd->flags & LLKHF_INJECTED) {
         return CallNextHookEx(s_hHook, nCode, wParam, lParam);
     }
@@ -164,47 +287,87 @@ LRESULT CALLBACK KeyboardHook::hookCallback(int nCode, WPARAM wParam, LPARAM lPa
     auto& state = KeyboardState::getInstance();
 
     // ------------------------------------------------------------------------
-    // Step 2: Global Toggle Shortcut: Ctrl + Shift + B
+    // Step 2: Global shortcuts
     // ------------------------------------------------------------------------
+
+    // Ctrl + Shift + B: toggle ENGLISH <-> BENGALI (phonetic)
     if (isKeyDown && isCtrl && isShift && kbd->vkCode == KeyboardState::TOGGLE_VK) {
+        // Finish whatever is in flight before the rules underneath it change.
+        commitBuffer();
         state.toggleMode();
         std::cout << "\n============================================\n"
                   << " [MODE TOGGLE] Input mode switched to: "
                   << state.getModeString() << "\n"
                   << "============================================" << std::endl;
-
-        // If toggling to English, flush or discard any leftover Roman buffer
-        if (state.getMode() == InputMode::ENGLISH && !s_buffer.empty()) {
-            s_buffer.clear();
-            if (s_engine) s_engine->clearActive();
-        }
         return 1; // Consume key event
+    }
+
+    // Ctrl + Shift + L: cycle ENGLISH -> phonetic -> fixed layout -> ENGLISH
+    if (isKeyDown && isCtrl && isShift && kbd->vkCode == KeyboardState::MODE_CYCLE_VK) {
+        commitBuffer();
+        state.cycleMode();
+        if (state.getMode() == InputMode::BENGALI_FIXED && (!s_layout || s_layout->size() == 0)) {
+            std::cout << "[MODE] Fixed-layout mode selected but no layout is loaded; "
+                         "keys will pass through unchanged." << std::endl;
+        }
+        std::cout << "[MODE] " << state.getModeString() << std::endl;
+        return 1;
+    }
+
+    // Ctrl + Shift + P: toggle live in-place preview
+    if (isKeyDown && isCtrl && isShift && kbd->vkCode == KeyboardState::LIVE_PREVIEW_VK) {
+        commitBuffer();
+        state.toggleLivePreview();
+        std::cout << "[PREVIEW] Live in-place preview "
+                  << (state.isLivePreviewEnabled() ? "ON" : "OFF (flush on delimiter)")
+                  << std::endl;
+        return 1;
     }
 
     // ------------------------------------------------------------------------
     // Step 3: English Mode: Pass everything through unchanged
     // ------------------------------------------------------------------------
-    if (state.getMode() == InputMode::ENGLISH) {
+    if (!state.isBengali()) {
         return CallNextHookEx(s_hHook, nCode, wParam, lParam);
     }
 
     // ========================================================================
-    // BENGALI MODE PROCESSING
+    // FIXED LAYOUT MODE
+    // ========================================================================
+    // Stateless: one key, one glyph, injected immediately. No buffer, no candidates,
+    // no preview bookkeeping - which is exactly why fixed layouts feel predictable.
+    if (state.getMode() == InputMode::BENGALI_FIXED) {
+        if (isCtrl || isAlt || !s_layout) {
+            return CallNextHookEx(s_hHook, nCode, wParam, lParam);
+        }
+
+        char key = 0;
+        if (charFromKey(kbd, key) && s_layout->isMapped(key)) {
+            if (isKeyDown) {
+                InputInjector::injectText(s_layout->mapKey(key));
+            }
+            return 1; // Consume both down and up for mapped keys
+        }
+        return CallNextHookEx(s_hHook, nCode, wParam, lParam);
+    }
+
+    // ========================================================================
+    // PHONETIC MODE
     // ========================================================================
 
-    // Shortcut 3a: Candidate cycling: Ctrl + Shift + Space
+    // Shortcut: Candidate cycling: Ctrl + Shift + Space
     if (isKeyDown && isCtrl && isShift && kbd->vkCode == KeyboardState::CYCLE_VK) {
         if (s_engine && !s_buffer.empty()) {
-            bool cycled = s_engine->cycleActiveCandidate();
-            if (cycled) {
+            if (s_engine->cycleActiveCandidate()) {
                 std::cout << "[CANDIDATE CYCLE] " << s_buffer.content()
                           << " -> " << s_engine->getActiveComposedString() << std::endl;
+                refreshPreview();
             }
         }
         return 1; // Consume
     }
 
-    // Shortcut 3b: Special character picker: Ctrl + Shift + D
+    // Shortcut: Special character picker: Ctrl + Shift + D
     if (isKeyDown && isCtrl && isShift && kbd->vkCode == KeyboardState::SPECIAL_VK) {
         s_specialPicker.activate();
         std::cout << "\n" << s_specialPicker.getMenuDisplay()
@@ -217,6 +380,9 @@ LRESULT CALLBACK KeyboardHook::hookCallback(int nCode, WPARAM wParam, LPARAM lPa
         if (isKeyDown) {
             auto result = s_specialPicker.handleKey(kbd->vkCode);
             if (result.has_value()) {
+                // Commit first: the picked sign belongs after the finished word, not
+                // inside the preview we are about to erase.
+                commitBuffer();
                 std::cout << "[PICKER] Injected: " << result.value() << std::endl;
                 InputInjector::injectText(result.value());
                 return 1; // Consume digit key
@@ -233,18 +399,24 @@ LRESULT CALLBACK KeyboardHook::hookCallback(int nCode, WPARAM wParam, LPARAM lPa
     }
 
     // ------------------------------------------------------------------------
-    // Step 4: Roman Alphabetic Keys ('A' - 'Z') -> Buffer Capture
+    // Step 4: Roman letters -> buffer capture (and live preview)
     // ------------------------------------------------------------------------
     if (!isCtrl && !isAlt && kbd->vkCode >= 'A' && kbd->vkCode <= 'Z') {
         if (isKeyDown) {
-            char c = isShift ? static_cast<char>(kbd->vkCode)
-                             : static_cast<char>(std::tolower(kbd->vkCode));
-            s_buffer.append(c);
+            // Resolve through the active layout so Caps Lock and Shift both behave.
+            // Case matters to the rules: T is ট while t is ত.
+            char c = 0;
+            if (!charFromKey(kbd, c)) {
+                c = isShift ? static_cast<char>(kbd->vkCode)
+                            : static_cast<char>(std::tolower(kbd->vkCode));
+            }
 
+            s_buffer.append(c);
             if (s_engine) {
                 s_engine->updateActiveBuffer(s_buffer.content());
                 std::cout << "[BUFFER] \"" << s_buffer.content() << "\" -> "
                           << s_engine->getActiveComposedString() << std::endl;
+                refreshPreview();
             }
         }
         return 1; // Consume both keydown and keyup for captured letters
@@ -257,10 +429,15 @@ LRESULT CALLBACK KeyboardHook::hookCallback(int nCode, WPARAM wParam, LPARAM lPa
         if (!s_buffer.empty()) {
             if (isKeyDown) {
                 s_buffer.backspace();
-                if (s_engine) {
+                if (s_buffer.empty()) {
+                    // Nothing left of the word: erase the preview entirely.
+                    discardBuffer();
+                    std::cout << "[BACKSPACE] Buffer cleared." << std::endl;
+                } else if (s_engine) {
                     s_engine->updateActiveBuffer(s_buffer.content());
                     std::cout << "[BACKSPACE] Buffer: \"" << s_buffer.content() << "\" -> "
                               << s_engine->getActiveComposedString() << std::endl;
+                    refreshPreview();
                 }
             }
             return 1; // Consume backspace while buffer has content
@@ -270,9 +447,8 @@ LRESULT CALLBACK KeyboardHook::hookCallback(int nCode, WPARAM wParam, LPARAM lPa
     }
 
     // ------------------------------------------------------------------------
-    // Step 6: Word Delimiters & Punctuation -> Flush Buffer & Inject
+    // Step 6: Word delimiters & punctuation -> commit the word
     // ------------------------------------------------------------------------
-    // Trigger on Space, Enter, or common punctuation keys
     const bool isSpace = (kbd->vkCode == VK_SPACE);
     const bool isReturn = (kbd->vkCode == VK_RETURN);
     const bool isPunctuation = (kbd->vkCode == VK_OEM_PERIOD ||
@@ -283,21 +459,31 @@ LRESULT CALLBACK KeyboardHook::hookCallback(int nCode, WPARAM wParam, LPARAM lPa
 
     if ((isSpace || isReturn || isPunctuation) && !s_buffer.empty()) {
         if (isKeyDown) {
-            std::string roman = s_buffer.content();
-            std::string bengali = s_engine ? s_engine->flushActive() : roman;
-
-            std::cout << "[FLUSH] \"" << roman << "\" ==> \"" << bengali << "\"" << std::endl;
-
-            // Clear buffer before injection to prevent race conditions
-            s_buffer.clear();
-
-            // Inject the Bengali Unicode string into the active application
-            InputInjector::injectText(bengali);
+            if (KeyboardState::getInstance().isLivePreviewEnabled()) {
+                // The word is already on screen; commitBuffer only patches it if the
+                // final text disagrees with what was previewed.
+                commitBuffer();
+            } else {
+                // Flush-on-delimiter path: nothing has been injected yet.
+                const std::string roman = s_buffer.content();
+                const std::string bengali = finalTextFor(roman);
+                std::cout << "[FLUSH] \"" << roman << "\" ==> \"" << bengali << "\"" << std::endl;
+                // Clear buffer before injection to prevent race conditions
+                s_buffer.clear();
+                s_previewUnits = 0;
+                s_previewText.clear();
+                InputInjector::injectText(bengali);
+            }
         }
         // Let the space/enter/punctuation pass through so formatting is preserved
         return CallNextHookEx(s_hHook, nCode, wParam, lParam);
     }
 
-    // Any other key: pass through unchanged
+    // Any other key (arrows, Home/End, Tab, mouse-driven focus changes...) ends the word:
+    // the caret is about to move, so the preview must not be edited by backspaces any more.
+    if (isKeyDown && !s_buffer.empty()) {
+        commitBuffer();
+    }
+
     return CallNextHookEx(s_hHook, nCode, wParam, lParam);
 }
