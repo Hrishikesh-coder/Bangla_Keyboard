@@ -17,6 +17,7 @@ An educational System Programming prototype demonstrating how to intercept, proc
    - [7b. Exception Dictionary](#7b-exception-dictionary)
    - [7c. Fixed Layout Mode](#7c-fixed-layout-mode)
    - [7d. Live In-Place Preview](#7d-live-in-place-preview)
+   - [7e. The Interface](#7e-the-interface)
 8. [Configurable Symbol Table & JSON](#configurable-symbol-table--json)
 9. [Unicode Composition & Bengali Conjuncts](#unicode-composition--bengali-conjuncts)
 10. [Special Character Picker (ৎ ং ঃ ঁ ঞ)](#special-character-picker-ৎ-ং-ঃ-ঁ-ঞ)
@@ -105,7 +106,8 @@ Shobdomala/
 │   ├── exceptions.json         # Whole-word overrides + English passthrough list
 │   └── layout_probhat.json     # Fixed keyboard layout (key -> glyph map)
 ├── docs/
-│   └── CONTEXTUAL_ENGINE.md    # Why the engine needs two passes (report material)
+│   ├── CONTEXTUAL_ENGINE.md    # Why the engine needs two passes (report material)
+│   └── INTERFACE.md            # UI design rationale
 ├── include/
 │   ├── core/
 │   │   ├── Candidate.h            # Roman token + candidate Bengali strings
@@ -143,6 +145,11 @@ Shobdomala/
 │   │   ├── InputInjector.cpp
 │   │   ├── KeyboardHook.cpp
 │   │   └── KeyboardState.cpp
+│   ├── ui/
+│   │   ├── UiTheme.cpp
+│   │   ├── CandidateWindow.cpp
+│   │   ├── OnScreenKeyboard.cpp
+│   │   └── TrayIcon.cpp
 │   └── main.cpp                # CLI entry point, hook lifecycle, and demo mode
 ├── tests/
 │   ├── test_helpers.h          # Lightweight test macros (zero dependencies)
@@ -468,6 +475,65 @@ flush-on-delimiter behaviour.
 
 ---
 
+## 7e. The Interface
+
+A system-wide IME has no main window and no business owning one. Three surfaces replace the
+prototype's console-only feedback, in descending order of how often the user sees them.
+
+### The composition overlay
+
+A dark card that appears at the caret while a word is in progress:
+
+```
+ ● PHONETIC   shanti          <- mode pip + exactly what was captured
+ শান্তি                        <- the composition, at reading size
+ ───────────────────────────
+ [ শ ]  [ ষ ]  [ স ]          <- alternatives; the chosen one carries the accent
+```
+
+This closes known limitation #1. Previously the preview went to a console, so seeing what
+the engine thought you meant required looking away from the sentence you were writing.
+
+The raw Roman buffer is shown because when the output is wrong, the user needs to know
+whether they mistyped or the engine misread. The alternatives are shown because cycling with
+`Ctrl+Shift+Space` was otherwise blind — you watched text change with no idea how many
+options existed. Chips are **clickable**, which is only possible because `WS_EX_NOACTIVATE`
+means the overlay never takes focus, so a click leaves the target application's caret alone.
+
+The caret position comes from `GetGUIThreadInfo` on the **foreground** thread. A low-level
+hook runs on our thread, which has no caret; `GetCaretPos` would report ours.
+
+### The tray icon
+
+The icon is drawn at runtime rather than shipped as a `.ico`, so it scales to whatever
+`SM_CXSMICON` reports and carries mode in **both** shape and colour: `A` on grey for English,
+`অ` on blue for phonetic, `ক` on green for fixed layout. Left click toggles English/Bengali;
+right click opens the full menu, where modes are radio items because only one can be active.
+
+### The on-screen keyboard
+
+Its obvious job is input. Its real job is teaching: every key cap shows the Bengali glyph
+large and the Latin key that produces it small underneath, so using the mouse gradually makes
+the board unnecessary. It is built from `FixedLayoutEngine`'s key map, so editing
+`config/layout_probhat.json` changes what is drawn — a layout and its keyboard cannot drift
+apart when there is one source of truth.
+
+### Visual language
+
+All tokens live in `include/ui/UiTheme.h`, named by role rather than hue so a light theme
+would be one file's change. The accent colour appears in exactly one place in the whole
+interface — the selected candidate — so that while cycling, the eye has one thing to track.
+
+Bengali renders in Nirmala UI, which does the conjunct shaping and matra reordering;
+`UnicodeComposer` emits a logically correct codepoint sequence, but turning ক + ্ + ষ into
+ক্ষ is the font's job. Every measurement is a 96-DPI design unit passed through `scale()`,
+and both windows handle `WM_DPICHANGED`.
+
+Full rationale, including the Win32 details that make each surface behave:
+[`docs/INTERFACE.md`](docs/INTERFACE.md).
+
+---
+
 ## 8. Configurable Symbol Table & JSON
 
 Rules are stored in `config/phonetic_rules.json`:
@@ -716,12 +782,13 @@ Output:
 [RUN ] test_case_sensitive_retroflex_tokens ... PASSED
 [RUN ] test_unicode_conformance_sequences ... PASSED
 [RUN ] test_candidate_cycling_end_to_end ... PASSED
+[RUN ] test_direct_candidate_selection ... PASSED
 [RUN ] test_punctuation_and_unknown_passthrough ... PASSED
 [RUN ] test_fixed_layout_engine ... PASSED
 [RUN ] test_shipped_layout_is_complete ... PASSED
 
 ----------------------------------------
-Results: 25/25 passed
+Results: 26/26 passed
 ========================================
 ```
 
@@ -731,8 +798,8 @@ Results: 25/25 passed
 
 As a minimal educational prototype, Shobdomala intentionally omits several production IME features:
 
-1. **No Floating Candidate Window**:
-   - The word now renders in place inside the target application as it is typed, but the list of *alternative* candidates is still printed to the console rather than shown in a floating IME window above the cursor. Cycling is therefore blind: you see the result change, not the options.
+1. **No Candidate Window in Fixed-Layout Mode**:
+   - The composition overlay is a phonetic-mode surface. Fixed-layout typing is stateless by design — one key, one glyph — so there is nothing in progress to preview and no candidates to choose between. That is correct behaviour, but it does mean the two modes feel different, and a user switching between them gets no visual confirmation of which one they are in beyond the tray icon and the mode pip.
 2. **Live Preview Assumes a Stationary Caret**:
    - In-place rendering erases the previous version with backspaces. If the caret moves mid-word for a reason we cannot observe — a mouse click, an autocomplete box rewriting the field, a terminal redrawing its line — those backspaces delete the wrong text. Any non-delimiter key commits the word defensively, and `Ctrl + Shift + P` / `--no-preview` restores the flush-on-delimiter behaviour.
 3. **Context, Not Comprehension**:

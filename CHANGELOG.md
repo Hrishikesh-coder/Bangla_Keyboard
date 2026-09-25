@@ -62,6 +62,29 @@ exactly this and was never used.
   Any non-delimiter key commits the current word defensively, because the live path assumes
   the caret has not moved.
 
+**A user interface** (`include/ui/`, `src/ui/`)
+- `CandidateWindow` — a dark card that follows the text caret while a word is in progress,
+  showing the mode, the raw Roman buffer, the composed Bengali at reading size, and clickable
+  chips for the alternatives. Closes known limitation #1: the preview used to go to a console.
+  `WS_EX_NOACTIVATE` keeps focus in the target application; the caret comes from
+  `GetGUIThreadInfo` on the *foreground* thread, since a low-level hook's own thread has no
+  caret.
+- `TrayIcon` — mode at a glance and mode control without a shortcut. The icon is drawn at
+  runtime, so it scales with `SM_CXSMICON` and carries state in both shape and colour
+  (`A`/grey, `অ`/blue, `ক`/green). Re-adds itself on `TaskbarCreated`, or it would vanish
+  whenever Explorer restarts.
+- `OnScreenKeyboard` — clickable keys built from `FixedLayoutEngine`'s map, each cap showing
+  the Bengali glyph with the Latin key underneath, so mouse use teaches the layout. Latching
+  one-shot Shift; the whole board is a drag handle via `WM_NCHITTEST`.
+- `UiTheme` — design tokens named by role, DPI scaling, font selection with verification
+  (Windows substitutes faces silently), and drawing helpers. The accent colour is used in
+  exactly one place — the selected candidate.
+- `PhoneticEngine::activeAmbiguousTokenIndex/activeCandidateOptions/activeCandidateSelection/
+  setActiveSelection` — so a clicked chip can select an option directly instead of cycling.
+- `KeyboardState::setOnChanged` — mode changes from the hook and from the tray both announce,
+  so the icon can never disagree with the engine.
+- Rationale: `docs/INTERFACE.md`.
+
 **Three input modes**
 - `InputMode::BENGALI_PHONETIC` and `InputMode::BENGALI_FIXED`; `InputMode::BENGALI` is kept
   as an alias for the phonetic mode so existing code compiles.
@@ -128,11 +151,11 @@ and the two compose without changes to either:
 
 ### Tests
 
-25 passing, up from 9. The 16 added by this branch cover the trie (including a byte-for-byte equivalence
+26 passing, up from 9. The 17 added by this branch cover the trie (including a byte-for-byte equivalence
 check against a reference implementation of the original substring scan), context flag
 computation, contextual rule selection, legacy rule loading, the exception dictionary,
 inherent-vowel handling, case-sensitive tokens, candidate cycling end to end, punctuation
-passthrough, the fixed layout, and Unicode conformance.
+passthrough, the fixed layout, direct candidate selection, and Unicode conformance.
 
 Conformance tests assert exact codepoint sequences rather than comparing rendered strings,
 because Bengali has several ways to look correct and be wrong:
