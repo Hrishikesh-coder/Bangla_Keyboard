@@ -4,6 +4,11 @@ project(Shobdomala VERSION 0.1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+if(MSVC)
+    add_compile_options(/utf-8)
+    add_compile_definitions(NOMINMAX)
+endif()
+
 # Header include paths
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -44,7 +49,7 @@ set(UI_SOURCES
 # Main executable. The native layer is Win32-only, so it is only defined on Windows;
 # this keeps the engine and its tests buildable on Linux/macOS for CI.
 if(WIN32)
-    add_executable(shobdomala
+    add_executable(ShobdomalaApp WIN32
         src/main.cpp
         ${CORE_SOURCES}
         ${NATIVE_SOURCES}
@@ -52,13 +57,17 @@ if(WIN32)
     )
 
     # user32: hooks and SendInput. gdi32: custom-drawn UI. shell32: tray icon.
-    target_link_libraries(shobdomala PRIVATE user32 gdi32 shell32)
+    target_link_libraries(ShobdomalaApp PRIVATE user32 gdi32 shell32)
+
+    if (MSVC)
+        set_target_properties(ShobdomalaApp PROPERTIES LINK_FLAGS "/ENTRY:mainCRTStartup")
+    endif()
 
     # Copy config directory to build output directory
-    add_custom_command(TARGET shobdomala POST_BUILD
+    add_custom_command(TARGET ShobdomalaApp POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_CURRENT_SOURCE_DIR}/config
-            $<TARGET_FILE_DIR:shobdomala>/config
+            $<TARGET_FILE_DIR:ShobdomalaApp>/config
     )
 endif()
 
