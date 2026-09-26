@@ -28,6 +28,12 @@ std::optional<std::string> SpecialCharPicker::handleKey(int vkCode) {
         return std::nullopt;
     }
 
+    // Ignore modifiers (Shift, Ctrl) so releasing them doesn't cancel the picker
+    if (vkCode == 0x10 || vkCode == 0xA0 || vkCode == 0xA1 || // VK_SHIFT, LSHIFT, RSHIFT
+        vkCode == 0x11 || vkCode == 0xA2 || vkCode == 0xA3) { // VK_CONTROL, LCONTROL, RCONTROL
+        return std::nullopt;
+    }
+
     // Accept both top-row digits ('1'-'5') and numpad digits (0x61-0x65)
     int digitVal = 0;
     if (vkCode >= '1' && vkCode <= '5') {
@@ -36,7 +42,7 @@ std::optional<std::string> SpecialCharPicker::handleKey(int vkCode) {
         digitVal = vkCode - 0x60;
     }
 
-    m_active = false; // Always deactivate after receiving any key
+    m_active = false; // Always deactivate after receiving any other key
 
     if (digitVal >= 1 && digitVal <= 5) {
         return m_items[digitVal - 1].character;

@@ -9,11 +9,20 @@ void InputBuffer::append(const std::string& str) {
 }
 
 bool InputBuffer::backspace() {
-    if (!m_buffer.empty()) {
-        m_buffer.pop_back();
-        return true;
+    if (m_buffer.empty()) {
+        return false;
     }
-    return false;
+    
+    // Remove the last UTF-8 character (which may be multiple bytes)
+    while (!m_buffer.empty()) {
+        unsigned char c = m_buffer.back();
+        m_buffer.pop_back();
+        if ((c & 0xC0) != 0x80) {
+            // Reached the leading byte of a multi-byte sequence, or an ASCII character
+            break;
+        }
+    }
+    return true;
 }
 
 void InputBuffer::clear() {

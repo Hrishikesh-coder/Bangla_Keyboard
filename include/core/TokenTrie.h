@@ -38,6 +38,15 @@ public:
     /// True when the token is present.
     bool contains(const std::string& token) const;
 
+    /**
+     * @brief Finds all registered tokens that start with the given prefix.
+     * Useful for autocomplete suggestions.
+     * @param prefix The prefix to search for.
+     * @param limit Maximum number of completions to return (0 for unlimited).
+     * @return A list of matching tokens in lexicographical order.
+     */
+    std::vector<std::string> getCompletions(const std::string& prefix, size_t limit = 0) const;
+
     /// Number of distinct tokens inserted.
     size_t size() const { return m_size; }
 
@@ -46,6 +55,8 @@ private:
         std::array<std::unique_ptr<Node>, 128> children{};
         bool terminal = false;
     };
+
+    void collectCompletions(const Node* node, std::string currentPrefix, std::vector<std::string>& results, size_t limit) const;
 
     Node m_root;
     size_t m_size = 0;

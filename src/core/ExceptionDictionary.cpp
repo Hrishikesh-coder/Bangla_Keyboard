@@ -48,7 +48,7 @@ bool ExceptionDictionary::loadFromString(const std::string& jsonContent) {
 
 void ExceptionDictionary::add(const std::string& romanWord, const std::string& output) {
     m_exact[romanWord] = output;
-    m_lower.emplace(toLower(romanWord), output);
+    m_lower[toLower(romanWord)] = output;
 }
 
 bool ExceptionDictionary::lookup(const std::string& romanWord, std::string& out) const {

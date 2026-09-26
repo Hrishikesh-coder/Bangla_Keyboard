@@ -53,6 +53,12 @@ std::vector<Candidate> PhoneticEngine::generateCandidates(const std::string& rom
         return candidates;
     }
 
+    std::string override;
+    if (m_exceptions.lookup(romanInput, override)) {
+        candidates.emplace_back(romanInput, std::vector<std::string>{override}, 0);
+        return candidates;
+    }
+
     // Pass 1: longest-match-first segmentation.
     std::vector<std::string> tokens = m_tokenizer->tokenize(romanInput);
 
