@@ -628,7 +628,8 @@ LRESULT CALLBACK KeyboardHook::hookCallback(int nCode, WPARAM wParam, LPARAM lPa
     if (isKeyDown && isCtrl && isShift && kbd->vkCode == KeyboardState::SPECIAL_VK) {
         s_specialPicker.activate();
         std::cout << "\n" << s_specialPicker.getMenuDisplay()
-                  << "\n[PICKER] Press 1-5 to insert, or any other key to cancel." << std::endl;
+                  << "\n[PICKER] Press the digit to insert, or any other key to cancel."
+                  << std::endl;
         return 1; // Consume
     }
 
@@ -648,8 +649,8 @@ LRESULT CALLBACK KeyboardHook::hookCallback(int nCode, WPARAM wParam, LPARAM lPa
             // and we allow this key to proceed to normal processing below.
         } else if (isKeyUp) {
             // If the keyup corresponds to a digit that triggered selection, consume it
-            if ((kbd->vkCode >= '1' && kbd->vkCode <= '5') ||
-                (kbd->vkCode >= 0x61 && kbd->vkCode <= 0x65)) {
+            if ((kbd->vkCode >= '1' && kbd->vkCode <= '9') ||
+                (kbd->vkCode >= 0x61 && kbd->vkCode <= 0x69)) {
                 return 1;
             }
         }

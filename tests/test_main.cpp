@@ -892,6 +892,18 @@ static bool test_special_picker_survives_modifier_release() {
     TEST_ASSERT_EQ(picked.value(), std::string("\u09CE")); // ৎ
     TEST_ASSERT(!picker.isActive());
 
+    // Hasant, added because 64 corpus words end in one and none were typable: every
+    // phonetic rule emits a consonant, and the composer only inserts a hasant between two.
+    picker.activate();
+    auto hasant = picker.handleKey('6');
+    TEST_ASSERT(hasant.has_value());
+    TEST_ASSERT_EQ(hasant.value(), cp({0x09CD}));
+
+    // A digit past the end of the table cancels rather than reading off it.
+    picker.activate();
+    TEST_ASSERT(!picker.handleKey('9').has_value());
+    TEST_ASSERT(!picker.isActive());
+
     // A genuinely unrelated key still cancels.
     picker.activate();
     TEST_ASSERT(!picker.handleKey('X').has_value());
@@ -1467,6 +1479,58 @@ static bool test_search_limits_are_configurable() {
     return true;
 }
 
+
+static bool test_word_list_is_well_formed() {
+    // Corpus text is dirty. The commonest Bengali corruption writes আ as অ + া, which
+    // renders almost identically and survives most pipelines -- 39 entries in the raw
+    // list had it. A dictionary containing a spelling the engine can never produce is
+    // strictly worse than not containing the word: it can never match, and it can win the
+    // frequency comparison against the correct spelling.
+    WordDictionary dict;
+    TEST_ASSERT(dict.loadFromFile(findConfig("words_bangla.json")));
+
+    for (const auto& entry : dict.topWords(0)) {
+        const auto cps = WordDictionary::toCodepoints(entry.word);
+        for (size_t i = 0; i < cps.size(); ++i) {
+            const bool independent = (cps[i] >= 0x0985 && cps[i] <= 0x0994);
+            const bool matra = (cps[i] >= 0x09BE && cps[i] <= 0x09CC);
+
+            // An independent vowel cannot carry a matra.
+            if (independent && i + 1 < cps.size() &&
+                cps[i + 1] >= 0x09BE && cps[i + 1] <= 0x09CC) {
+                std::cerr << "  malformed entry (vowel + matra): " << entry.word << "\n";
+                return false;
+            }
+            // A word cannot begin with a matra or a hasant.
+            if (i == 0 && (matra || cps[i] == 0x09CD)) {
+                std::cerr << "  malformed entry (leading mark): " << entry.word << "\n";
+                return false;
+            }
+            // Two matras cannot stack.
+            if (matra && i + 1 < cps.size() &&
+                cps[i + 1] >= 0x09BE && cps[i + 1] <= 0x09CC) {
+                std::cerr << "  malformed entry (doubled matra): " << entry.word << "\n";
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+static bool test_ii_stays_a_single_token() {
+    // The mirror image of the 'ri' decision, and the reason that one needed measuring
+    // rather than reasoning about. "ii" looks like exactly the same bug -- maximal munch
+    // takes it as ঈ, so ি+ই is unspellable -- but the corpus says the opposite: ঈ/ী
+    // outnumber ি+ই about thirteen to one. Removing the token here would lose far more
+    // than it gained.
+    PhoneticEngine engine;
+    TEST_ASSERT(loadProductionConfig(engine));
+    TEST_ASSERT_EQ(engine.transliterate("ii"), cp({0x0988}));
+    TEST_ASSERT_EQ(engine.transliterate("dii"), cp({0x09A6, 0x09C0}));
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Fixed layout engine
 // ---------------------------------------------------------------------------
@@ -1754,6 +1818,8 @@ int main() {
     RUN_TEST(test_exception_override_reaches_live_preview);
     RUN_TEST(test_exception_dictionary_case_collision);
     RUN_TEST(test_ri_is_not_a_token);
+    RUN_TEST(test_ii_stays_a_single_token);
+    RUN_TEST(test_word_list_is_well_formed);
     RUN_TEST(test_search_limits_are_configurable);
     RUN_TEST(test_user_dictionary_learns_and_reinforces);
     RUN_TEST(test_morphology_strips_suffixes);

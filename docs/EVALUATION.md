@@ -26,9 +26,9 @@ letter, i.e. where the resolver has real work to do:
 
 | Resolver | Correct | Accuracy |
 |---|---|---|
-| `DefaultCandidateResolver` (always candidate 0) | 774 / 1922 | **40.3%** |
-| `DictionaryCandidateResolver`, word present in dictionary | 1702 / 1922 | **88.6%** |
-| `DictionaryCandidateResolver`, **word held out** | 1084 / 1922 | **56.4%** |
+| `DefaultCandidateResolver` (always candidate 0) | 776 / 1924 | **40.3%** |
+| `DictionaryCandidateResolver`, word present in dictionary | 1708 / 1924 | **88.8%** |
+| `DictionaryCandidateResolver`, **word held out** | 1088 / 1924 | **56.5%** |
 
 ## Finding the errors before guessing at fixes
 
@@ -64,6 +64,53 @@ unhooks a low-level hook that exceeds 300 ms, so that is a factor of 550 in hand
 After both fixes, in-dictionary failures fell from 17.1% to 11.4% and the remaining
 confusions are a flat tail with no dominant cause: ী/ি, ট/ত, ন/ণ, শ/স. Those are genuine
 homophones, which positional context cannot resolve by definition.
+
+## What the remaining failures actually are
+
+It is easy to read a 11% failure rate as 11% worth of bugs. Classifying every
+in-dictionary failure says otherwise. For each one, the benchmark checks exhaustively
+whether *any* combination of candidates composes to the target word:
+
+| Cause | Count | Is it a defect? |
+|---|---|---|
+| Lost to a **higher-frequency** dictionary word | 193 | **No** |
+| Target not reachable by any combination | 21 | Yes — rule-table gap |
+| Lost to an equal-frequency word | 1 | No — a coin toss |
+| Reachable but no tier selected it | 2 | Yes |
+
+**87% of failures are not bugs.** Both spellings are real Bengali words, the Roman input is
+genuinely ambiguous between them, and the resolver picked the commoner one. Without
+sentence context that is the correct choice — it is right more often than any alternative
+policy. Removing those "failures" would require knowing what the user meant, which is a
+language-model problem, not a resolution bug.
+
+The 21 unreachable targets were real defects, and they had three distinct causes:
+
+- **Word-final hasant.** বাহ্, আল্লাহ্ and 62 other corpus words end in an explicit hasant,
+  and none of them could be typed at all: every phonetic rule emits a consonant, and
+  `UnicodeComposer` only ever inserts a hasant *between* two of them. Avro's key for this is
+  `,,` but the hook only captures A–Z into the buffer, so punctuation never reaches the
+  engine. Added to the special-character picker, which exists for exactly this class.
+- **Malformed corpus entries.** 39 words wrote আ as অ + া — the commonest corruption in
+  Bengali corpora, since it renders almost identically and survives most pipelines. A
+  dictionary entry the engine can never produce is worse than a missing one: it can never
+  match, and it can still beat the correct spelling on frequency. Repaired, and 89 further
+  entries that were still malformed were dropped rather than guessed at. A test now rejects
+  the whole class.
+- **Convention artefacts**, where the word needs a capital `O` and the lazy-typist model
+  types lowercase. Not defects — see `docs/TYPING_CONVENTION.md`.
+
+## A fix that measurement said not to make
+
+`ii` looks like exactly the same bug as `ri`: maximal munch takes it as ঈ, so ি+ই is
+unspellable, and দিই comes out as দী. The obvious move is to remove the token as before.
+
+The corpus says no. ঈ and ী appear in words totalling 45,728 occurrences; ি+ই in 3,389.
+Removing the token would be wrong about thirteen times for every time it was right — the
+exact inverse of the `ri` case, where র+ি beat ৃ four to one.
+
+Two identical-looking bugs, opposite correct answers, and no way to tell them apart by
+reasoning. This is the argument for measuring, in one example.
 
 ## Closing the generalisation gap
 
