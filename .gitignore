@@ -1,8 +1,14 @@
 # Build outputs
 bin/
 build/
+build-*/
+*_build/
 cmake-build-*/
 out/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
 *.exe
 *.o
 *.obj
