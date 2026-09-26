@@ -134,4 +134,8 @@ private:
     UnicodeComposer m_composer;
 
     std::vector<Candidate> m_activeCandidates;
+
+    /// Set when the active buffer matched the exception dictionary. Holds already-composed
+    /// Bengali that must bypass UnicodeComposer entirely.
+    std::string m_activeOverride;
 };
