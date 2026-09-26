@@ -26,9 +26,19 @@ std::vector<std::string> Tokenizer::tokenize(const std::string& input) const {
             pos += matchLen;
         } else {
             // No known token starts here: preserve the single character as-is so that
-            // punctuation and digits survive transliteration untouched.
-            tokens.push_back(input.substr(pos, 1));
-            pos += 1;
+            // punctuation and digits survive transliteration untouched (UTF-8 aware).
+            size_t charLen = 1;
+            unsigned char c = input[pos];
+            if ((c & 0xE0) == 0xC0) charLen = 2;
+            else if ((c & 0xF0) == 0xE0) charLen = 3;
+            else if ((c & 0xF8) == 0xF0) charLen = 4;
+            
+            if (pos + charLen > inputLen) {
+                charLen = inputLen - pos;
+            }
+            
+            tokens.push_back(input.substr(pos, charLen));
+            pos += charLen;
         }
     }
 

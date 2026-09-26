@@ -125,9 +125,14 @@ void CandidateWindow::layout() {
 
     // --- measure the header strip (mode pip + Roman buffer)
     SelectObject(hdc, m_fontLabel);
-    const std::wstring header = UiTheme::toWide(m_content.modeLabel) + L"   " +
-                                UiTheme::toWide(m_content.roman);
-    SIZE headerSize = UiTheme::measureText(hdc, header);
+    SIZE modeSize = UiTheme::measureText(hdc, UiTheme::toWide(m_content.modeLabel));
+    SIZE romanSize = UiTheme::measureText(hdc, UiTheme::toWide(m_content.roman));
+    
+    // Add the space required for the pip, its gap, and the gap between mode and roman text
+    const int pipSize = UiTheme::scale(6, m_dpi);
+    const int pipGap = UiTheme::scale(7, m_dpi);
+    const int textGap = UiTheme::scale(10, m_dpi);
+    SIZE headerSize = { pipSize + pipGap + modeSize.cx + textGap + romanSize.cx, std::max(modeSize.cy, romanSize.cy) };
 
     // --- measure the composed Bengali
     SelectObject(hdc, m_fontCompose);
