@@ -4,6 +4,7 @@
 #include "native/KeyboardHook.h"
 #include "native/KeyboardState.h"
 #include "native/InputInjector.h"
+#include "native/ConsoleHost.h"
 #include "ui/CandidateWindow.h"
 #include "ui/OnScreenKeyboard.h"
 #include "ui/TrayIcon.h"
@@ -16,6 +17,7 @@
 #include <memory>
 
 static KeyboardHook g_hook;
+static ConsoleHost g_console;
 static TrayIcon g_tray;
 static CandidateWindow g_candidateWindow;
 static OnScreenKeyboard g_onScreenKeyboard;
@@ -177,9 +179,30 @@ static int runOfflineDemo(PhoneticEngine& engine, FixedLayoutEngine& layout) {
 }
 
 int main(int argc, char* argv[]) {
-    // Set console output code page to UTF-8 so Bengali characters display properly in cmd/PowerShell
-    SetConsoleOutputCP(CP_UTF8);
-    SetConsoleCP(CP_UTF8);
+    // --- console policy -------------------------------------------------
+    // This is linked as a GUI-subsystem application, so it starts with no console at all.
+    // Decide up front whether one is needed, before anything tries to write to std::cout.
+    //
+    //   --test / --demo   : the REPL reads std::cin, so a console is mandatory.
+    //   --verbose         : the user asked to watch the engine trace.
+    //   otherwise         : attach to the launching terminal if there is one, and stay
+    //                       silent if there is not. No stray window on the desktop.
+    bool wantsDemo = false;
+    bool wantsVerbose = false;
+    bool wantsLivePreview = true;
+
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if (arg == "--test" || arg == "--demo" || arg == "-t") {
+            wantsDemo = true;
+        } else if (arg == "--verbose" || arg == "-v") {
+            wantsVerbose = true;
+        } else if (arg == "--no-preview") {
+            wantsLivePreview = false;
+        }
+    }
+
+    g_console.attach(wantsDemo || wantsVerbose);
 
     PhoneticEngine engine;
     FixedLayoutEngine layout;
@@ -205,15 +228,23 @@ int main(int argc, char* argv[]) {
                   << layout.size() << " fixed-layout keys." << std::endl;
     }
 
-    // Check for offline test/demo mode
-    for (int i = 1; i < argc; ++i) {
-        std::string arg = argv[i];
-        if (arg == "--test" || arg == "--demo" || arg == "-t") {
-            return runOfflineDemo(engine, layout);
+    if (!wantsLivePreview) {
+        KeyboardState::getInstance().setLivePreview(false);
+    }
+
+    if (wantsDemo) {
+        if (!g_console.active()) {
+            // Nothing to read from and nothing to print to: say so where the user will
+            // actually see it, rather than exiting silently.
+            MessageBoxW(nullptr,
+                        L"Demo mode needs a console and one could not be opened.\n"
+                        L"Run shobdomala.exe --test from a command prompt.",
+                        L"Shobdomala", MB_OK | MB_ICONWARNING);
+            return 1;
         }
-        if (arg == "--no-preview") {
-            KeyboardState::getInstance().setLivePreview(false);
-        }
+        int result = runOfflineDemo(engine, layout);
+        g_console.waitBeforeClosing();
+        return result;
     }
 
     // Register console Ctrl+C handler for graceful hook cleanup
