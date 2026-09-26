@@ -90,6 +90,7 @@ HHOOK KeyboardHook::s_hHook = nullptr;
 PhoneticEngine* KeyboardHook::s_engine = nullptr;
 FixedLayoutEngine* KeyboardHook::s_layout = nullptr;
 CandidateWindow* KeyboardHook::s_candidateWindow = nullptr;
+WordDictionary* KeyboardHook::s_words = nullptr;
 InputBuffer KeyboardHook::s_buffer;
 SpecialCharPicker KeyboardHook::s_specialPicker;
 DWORD KeyboardHook::s_threadId = 0;
@@ -101,7 +102,7 @@ KeyboardHook::~KeyboardHook() {
 }
 
 bool KeyboardHook::install(PhoneticEngine* engine, FixedLayoutEngine* layout,
-                           CandidateWindow* candidateWindow) {
+                           CandidateWindow* candidateWindow, WordDictionary* words) {
     if (s_hHook != nullptr) {
         return true; // Already installed
     }
@@ -109,6 +110,7 @@ bool KeyboardHook::install(PhoneticEngine* engine, FixedLayoutEngine* layout,
     s_engine = engine;
     s_layout = layout;
     s_candidateWindow = candidateWindow;
+    s_words = words;
     s_threadId = GetCurrentThreadId();
 
     HINSTANCE hInstance = GetModuleHandleW(nullptr);
@@ -139,6 +141,7 @@ void KeyboardHook::uninstall() {
             s_candidateWindow->hide();
         }
         s_candidateWindow = nullptr;
+        s_words = nullptr;
         s_buffer.clear();
         s_previewUnits = 0;
         s_previewText.clear();
@@ -206,7 +209,54 @@ void KeyboardHook::refreshUi() {
         }
     }
 
+    // Whole-word prediction from what has been composed so far. If the composition is a
+    // prefix of known words, offer completions; if it is not, the user has probably
+    // mistyped, so offer near matches instead. Correction is only attempted once there is
+    // enough of a word to be wrong about - below three letters almost everything is within
+    // two edits of almost everything else.
+    if (s_words && s_words->size() > 0 && !content.composed.empty()) {
+        auto predictions = s_words->predict(content.composed, 4);
+        for (const auto& hit : predictions) {
+            if (hit.word != content.composed) {
+                content.words.push_back(hit.word);
+            }
+        }
+        if (content.words.empty() &&
+            WordDictionary::toCodepoints(content.composed).size() >= 3) {
+            for (const auto& hit : s_words->correct(content.composed, 2, 3)) {
+                if (hit.word != content.composed) {
+                    content.words.push_back(hit.word);
+                }
+            }
+            content.wordsAreCorrections = !content.words.empty();
+        }
+    }
+
     s_candidateWindow->update(content);
+}
+
+void KeyboardHook::selectWord(const std::string& word) {
+    if (word.empty() || s_buffer.empty()) {
+        return;
+    }
+
+    // Replace everything shown for this word, then finish it: a prediction is a decision
+    // about the whole word, so leaving the buffer open would let the next keystroke append
+    // to a word the user has already settled.
+    s_previewUnits = InputInjector::replaceText(s_previewUnits, word);
+    s_previewText = word;
+
+    std::cout << "[PREDICT] \"" << s_buffer.content() << "\" ==> \"" << word << "\"" << std::endl;
+
+    s_buffer.clear();
+    if (s_engine) {
+        s_engine->clearActive();
+    }
+    s_previewUnits = 0;
+    s_previewText.clear();
+    if (s_candidateWindow) {
+        s_candidateWindow->hide();
+    }
 }
 
 void KeyboardHook::selectCandidate(size_t optionIndex) {

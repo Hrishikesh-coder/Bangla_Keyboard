@@ -1,5 +1,6 @@
 #include "core/PhoneticEngine.h"
 #include "core/FixedLayoutEngine.h"
+#include "core/WordDictionary.h"
 #include "core/SpecialCharPicker.h"
 #include "native/KeyboardHook.h"
 #include "native/KeyboardState.h"
@@ -206,12 +207,17 @@ int main(int argc, char* argv[]) {
 
     PhoneticEngine engine;
     FixedLayoutEngine layout;
+    WordDictionary words;
 
     if (!engine.loadRules(findConfig("phonetic_rules.json"))) {
         std::cerr << "[WARNING] Could not load config/phonetic_rules.json!" << std::endl;
     }
     if (!engine.loadExceptions(findConfig("exceptions.json"))) {
         std::cout << "[INIT] No exceptions.json found; continuing without word overrides." << std::endl;
+    }
+    if (!words.loadFromFile(findConfig("words_bangla.json"))) {
+        std::cout << "[INIT] No word list found; prediction and autocorrect are off."
+                  << std::endl;
     }
     if (!layout.loadFromFile(findConfig("layout_probhat.json"))) {
         std::cout << "[INIT] No fixed layout loaded; fixed-layout mode will be unavailable." << std::endl;
@@ -225,7 +231,8 @@ int main(int argc, char* argv[]) {
         std::cout << "[INIT] Loaded " << engine.getSymbolTable().size() << " phonetic rules ("
                   << engine.getSymbolTable().contextualRuleCount() << " context-sensitive), "
                   << engine.getExceptions().size() << " exception overrides, "
-                  << layout.size() << " fixed-layout keys." << std::endl;
+                  << layout.size() << " fixed-layout keys, "
+                  << words.size() << " dictionary words." << std::endl;
     }
 
     if (!wantsLivePreview) {
@@ -264,6 +271,9 @@ int main(int argc, char* argv[]) {
     }
     g_candidateWindow.setOnSelect([](size_t optionIndex) {
         KeyboardHook::selectCandidate(optionIndex);
+    });
+    g_candidateWindow.setOnSelectWord([](const std::string& word) {
+        KeyboardHook::selectWord(word);
     });
 
     if (!g_onScreenKeyboard.create(instance, &layout)) {
@@ -318,7 +328,7 @@ int main(int argc, char* argv[]) {
               << "========================================================\n" << std::endl;
 
     // Install the low-level keyboard hook
-    if (!g_hook.install(&engine, &layout, &g_candidateWindow)) {
+    if (!g_hook.install(&engine, &layout, &g_candidateWindow, &words)) {
         std::cerr << "[ERROR] Failed to install keyboard hook. Terminating." << std::endl;
         return 1;
     }
