@@ -35,6 +35,7 @@ set(CORE_SOURCES
 # Native Win32 hook and injection sources
 set(NATIVE_SOURCES
     src/native/ConsoleHost.cpp
+    src/native/Settings.cpp
     src/native/InputInjector.cpp
     src/native/KeyboardHook.cpp
     src/native/KeyboardState.cpp

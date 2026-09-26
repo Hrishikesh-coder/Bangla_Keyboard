@@ -23,6 +23,7 @@ CORE_SRCS = src/core/CandidateResolver.cpp \
             src/core/WordDictionary.cpp
 
 NATIVE_SRCS = src/native/ConsoleHost.cpp \
+              src/native/Settings.cpp \
               src/native/InputInjector.cpp \
               src/native/KeyboardHook.cpp \
               src/native/KeyboardState.cpp

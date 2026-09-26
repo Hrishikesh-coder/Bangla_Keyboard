@@ -36,6 +36,12 @@ public:
     bool create(HINSTANCE instance, const FixedLayoutEngine* layout);
     void destroy();
 
+    /// Restores a saved position. Pass (0, 0) to keep the default placement.
+    void setPosition(int x, int y);
+
+    /// Current top-left in screen coordinates, for persisting across runs.
+    bool position(int& x, int& y) const;
+
     void show();
     void hide();
     void toggle();

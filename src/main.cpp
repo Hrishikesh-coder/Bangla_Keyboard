@@ -6,6 +6,7 @@
 #include "native/KeyboardState.h"
 #include "native/InputInjector.h"
 #include "native/ConsoleHost.h"
+#include "native/Settings.h"
 #include "ui/CandidateWindow.h"
 #include "ui/OnScreenKeyboard.h"
 #include "ui/TrayIcon.h"
@@ -19,6 +20,8 @@
 
 static KeyboardHook g_hook;
 static ConsoleHost g_console;
+static Settings g_settings;
+static std::string g_settingsPath;
 static TrayIcon g_tray;
 static CandidateWindow g_candidateWindow;
 static OnScreenKeyboard g_onScreenKeyboard;
@@ -47,6 +50,18 @@ static void showHelp() {
         MB_OK | MB_ICONINFORMATION);
 }
 
+/// Captures the current state and writes it out, so the next launch starts where this one
+/// left off. Called on every change rather than only at exit: an IME is usually ended by
+/// logging off or by Task Manager, neither of which runs shutdown code.
+static void persistSettings() {
+    auto& state = KeyboardState::getInstance();
+    g_settings.startupMode = state.getMode();
+    g_settings.livePreview = state.isLivePreviewEnabled();
+    g_settings.onScreenKeyboardVisible = g_onScreenKeyboard.isVisible();
+    g_onScreenKeyboard.position(g_settings.onScreenKeyboardX, g_settings.onScreenKeyboardY);
+    g_settings.save(g_settingsPath);
+}
+
 /// Mirrors the current state onto the tray icon.
 static void syncTray() {
     auto& state = KeyboardState::getInstance();
@@ -67,6 +82,7 @@ static void handleTrayCommand(TrayIcon::Command command) {
         case TrayIcon::Command::ToggleOnScreenKeyboard:
             g_onScreenKeyboard.toggle();
             syncTray();
+            persistSettings();
             break;
 
         case TrayIcon::Command::ShowHelp:
@@ -74,6 +90,7 @@ static void handleTrayCommand(TrayIcon::Command command) {
             break;
 
         case TrayIcon::Command::Exit:
+            persistSettings();
             g_hook.uninstall();
             g_hook.stopMessageLoop();
             break;
@@ -205,6 +222,10 @@ int main(int argc, char* argv[]) {
 
     g_console.attach(wantsDemo || wantsVerbose);
 
+    // Preferences from the last run. A missing or corrupt file leaves the defaults.
+    g_settingsPath = Settings::defaultPath();
+    g_settings.load(g_settingsPath);
+
     PhoneticEngine engine;
     FixedLayoutEngine layout;
     WordDictionary words;
@@ -235,6 +256,10 @@ int main(int argc, char* argv[]) {
                   << words.size() << " dictionary words." << std::endl;
     }
 
+    // Saved preferences first, then command-line flags, which are an explicit override for
+    // this run only and so must win.
+    KeyboardState::getInstance().setLivePreview(g_settings.livePreview);
+    KeyboardState::getInstance().setMode(g_settings.startupMode);
     if (!wantsLivePreview) {
         KeyboardState::getInstance().setLivePreview(false);
     }
@@ -279,6 +304,10 @@ int main(int argc, char* argv[]) {
     if (!g_onScreenKeyboard.create(instance, &layout)) {
         std::cerr << "[WARNING] Could not create the on-screen keyboard." << std::endl;
     }
+    g_onScreenKeyboard.setPosition(g_settings.onScreenKeyboardX, g_settings.onScreenKeyboardY);
+    if (g_settings.onScreenKeyboardVisible) {
+        g_onScreenKeyboard.show();
+    }
     g_onScreenKeyboard.setOnKey([](const std::string& glyph) {
         // The board never takes focus, so this lands in whatever the user was typing in.
         InputInjector::injectText(glyph);
@@ -294,6 +323,7 @@ int main(int argc, char* argv[]) {
     // end up here, so the icon can never disagree with the engine.
     KeyboardState::getInstance().setOnChanged([]() {
         syncTray();
+        persistSettings();
         auto& state = KeyboardState::getInstance();
         g_tray.notify(L"Shobdomala",
                       state.getMode() == InputMode::ENGLISH
@@ -337,6 +367,7 @@ int main(int argc, char* argv[]) {
     g_hook.runMessageLoop();
 
     // Clean uninstall upon exit
+    persistSettings();
     g_hook.uninstall();
     g_onScreenKeyboard.destroy();
     g_candidateWindow.destroy();

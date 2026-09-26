@@ -204,6 +204,24 @@ int OnScreenKeyboard::hitTest(POINT point) const {
 // Visibility
 // ---------------------------------------------------------------------------
 
+void OnScreenKeyboard::setPosition(int x, int y) {
+    if (!m_hwnd || (x == 0 && y == 0)) {
+        return;
+    }
+    SetWindowPos(m_hwnd, nullptr, x, y, 0, 0,
+                 SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+bool OnScreenKeyboard::position(int& x, int& y) const {
+    RECT rect;
+    if (!m_hwnd || !GetWindowRect(m_hwnd, &rect)) {
+        return false;
+    }
+    x = rect.left;
+    y = rect.top;
+    return true;
+}
+
 void OnScreenKeyboard::show() {
     if (!m_hwnd) {
         return;
