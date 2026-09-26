@@ -160,15 +160,28 @@ void CandidateWindow::layout() {
 
     ReleaseDC(m_hwnd, hdc);
 
+    // --- measure the suggestion row
+    SelectObject(hdc, m_fontLabel);
+    const std::wstring suggestionLine = suggestionText();
+    SIZE suggestionSize = suggestionLine.empty()
+                              ? SIZE{0, 0}
+                              : UiTheme::measureText(hdc, suggestionLine);
+
     const int contentWidth = std::max({ static_cast<int>(headerSize.cx),
                                         static_cast<int>(composedSize.cx),
-                                        chipsWidth });
+                                        chipsWidth,
+                                        static_cast<int>(suggestionSize.cx) });
     const int minWidth = UiTheme::scale(180, m_dpi);
 
     m_width = std::max(minWidth, contentWidth + pad * 2);
     m_height = pad + stripH + composedSize.cy + pad;
     if (chipCount > 0) {
         m_height += gap + chipH + UiTheme::scale(4, m_dpi);
+    }
+    m_suggestionY = 0;
+    if (!suggestionLine.empty()) {
+        m_suggestionY = m_height - pad + UiTheme::scale(2, m_dpi);
+        m_height += suggestionSize.cy + UiTheme::scale(6, m_dpi);
     }
 
     // --- place the chips now that the width is known
@@ -253,6 +266,22 @@ void CandidateWindow::hide() {
 
 bool CandidateWindow::isVisible() const {
     return m_visible;
+}
+
+std::wstring CandidateWindow::suggestionText() const {
+    if (m_content.suggestions.empty()) {
+        return std::wstring();
+    }
+    // Middle dots rather than commas: this is a set of options, not a sentence, and the
+    // dots read as separators at 9pt where a comma nearly disappears.
+    std::wstring line = L"continues:  ";
+    for (size_t i = 0; i < m_content.suggestions.size(); ++i) {
+        if (i > 0) {
+            line += L"  \u00B7  ";
+        }
+        line += UiTheme::toWide(m_content.suggestions[i]);
+    }
+    return line;
 }
 
 int CandidateWindow::hitTestChip(POINT point) const {
@@ -342,6 +371,15 @@ void CandidateWindow::onPaint() {
             UiTheme::drawText(hdc, label, m_chipRects[i], textColour,
                               DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX | DT_NOCLIP);
         }
+    }
+
+    // --- suggestion row: which longer tokens still start with what has been typed
+    const std::wstring suggestionLine = suggestionText();
+    if (!suggestionLine.empty() && m_suggestionY > 0) {
+        SelectObject(hdc, m_fontLabel);
+        RECT rect { pad, m_suggestionY, m_width - pad, m_height - UiTheme::scale(4, m_dpi) };
+        UiTheme::drawText(hdc, suggestionLine, rect, UiTheme::TEXT_FAINT,
+                          DT_SINGLELINE | DT_LEFT | DT_NOPREFIX | DT_END_ELLIPSIS);
     }
 
     BitBlt(screenDc, 0, 0, m_width, m_height, hdc, 0, 0, SRCCOPY);
