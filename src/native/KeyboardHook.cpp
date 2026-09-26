@@ -189,18 +189,19 @@ void KeyboardHook::refreshUi() {
     content.fixedMode = (state.getMode() == InputMode::BENGALI_FIXED);
     content.modeLabel = content.fixedMode ? "FIXED" : "PHONETIC";
 
-    if (!content.fixedMode && !s_buffer.empty()) {
+    // Offer the longer rule tokens that still start with the last token typed, so that
+    // "kh" and "kkh" are discoverable from "k" rather than having to be learnt from the
+    // JSON file. Only the *continuations* are listed: echoing the token the user has
+    // already typed back at them says nothing.
+    if (!content.fixedMode) {
         const auto& active = s_engine->getActiveCandidates();
         if (!active.empty()) {
-            std::string lastToken = active.back().romanToken;
-            std::vector<std::string> suggestions = s_engine->getSymbolTable().trie().getCompletions(lastToken, 4);
-            if (suggestions.size() > 1 || (suggestions.size() == 1 && suggestions[0] != lastToken)) {
-                content.modeLabel += "  [Suggest: ";
-                for (size_t i = 0; i < suggestions.size(); ++i) {
-                    content.modeLabel += suggestions[i];
-                    if (i + 1 < suggestions.size()) content.modeLabel += ", ";
+            const std::string& lastToken = active.back().romanToken;
+            for (const auto& completion :
+                 s_engine->getSymbolTable().trie().getCompletions(lastToken, 5)) {
+                if (completion != lastToken) {
+                    content.suggestions.push_back(completion);
                 }
-                content.modeLabel += "]";
             }
         }
     }

@@ -42,6 +42,17 @@ public:
         size_t selectedIndex = 0;              ///< Index into `candidates`
         std::string modeLabel;                 ///< "PHONETIC" / "FIXED LAYOUT"
         bool fixedMode = false;                ///< Selects the mode pip colour
+
+        /**
+         * Longer rule tokens that begin with what the user has typed so far. Typing "k"
+         * offers "kh" and "kkh", so the multi-character tokens become discoverable instead
+         * of having to be learnt from the JSON file.
+         *
+         * Its own field, and its own row, because it is content rather than chrome. Packed
+         * into modeLabel it rendered in the faint 9pt label face beside the mode name, and
+         * widened the card without limit as more completions matched.
+         */
+        std::vector<std::string> suggestions;
     };
 
     CandidateWindow() = default;
@@ -87,6 +98,9 @@ private:
 
     int hitTestChip(POINT clientPoint) const;
 
+    /// Formats the suggestion row, or an empty string when there is nothing to suggest.
+    std::wstring suggestionText() const;
+
     HWND m_hwnd = nullptr;
     HINSTANCE m_instance = nullptr;
     UINT m_dpi = 96;
@@ -99,6 +113,7 @@ private:
     std::vector<RECT> m_chipRects;
     int m_width = 0;
     int m_height = 0;
+    int m_suggestionY = 0;
     int m_hoverChip = -1;
     bool m_visible = false;
     bool m_trackingMouse = false;
