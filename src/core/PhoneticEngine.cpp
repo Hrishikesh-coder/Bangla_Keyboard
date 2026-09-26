@@ -53,12 +53,6 @@ std::vector<Candidate> PhoneticEngine::generateCandidates(const std::string& rom
         return candidates;
     }
 
-    std::string override;
-    if (m_exceptions.lookup(romanInput, override)) {
-        candidates.emplace_back(romanInput, std::vector<std::string>{override}, 0);
-        return candidates;
-    }
-
     // Pass 1: longest-match-first segmentation.
     std::vector<std::string> tokens = m_tokenizer->tokenize(romanInput);
 
@@ -128,6 +122,19 @@ std::string PhoneticEngine::transliterateText(const std::string& romanText) {
 }
 
 void PhoneticEngine::updateActiveBuffer(const std::string& romanBuffer) {
+    // An exception override is already-composed Bengali. It must never be fed back through
+    // UnicodeComposer, which would apply conjunct logic to it a second time: ধন্যবাদ walks
+    // out as ধ্ন্য্বাদ, because the composer sees ধ followed by ন and inserts a virama that
+    // the text already contains. Hold it aside and let the composition accessors return it
+    // verbatim.
+    m_activeOverride.clear();
+    if (m_exceptions.lookup(romanBuffer, m_activeOverride)) {
+        m_activeCandidates.clear();
+        m_activeCandidates.emplace_back(romanBuffer,
+                                        std::vector<std::string>{m_activeOverride}, 0);
+        return;
+    }
+
     std::vector<Candidate> oldCandidates = std::move(m_activeCandidates);
     m_activeCandidates = generateCandidates(romanBuffer);
 
@@ -148,7 +155,8 @@ void PhoneticEngine::updateActiveBuffer(const std::string& romanBuffer) {
 }
 
 bool PhoneticEngine::cycleActiveCandidate() {
-    if (m_activeCandidates.empty()) {
+    if (m_activeCandidates.empty() || !m_activeOverride.empty()) {
+        // A dictionary override is a single fixed spelling; there is nothing to cycle to.
         return false;
     }
 
@@ -177,6 +185,9 @@ bool PhoneticEngine::cycleActiveCandidate() {
 }
 
 std::string PhoneticEngine::getActiveComposedString() const {
+    if (!m_activeOverride.empty()) {
+        return m_activeOverride; // already composed; see updateActiveBuffer
+    }
     return m_composer.compose(m_activeCandidates);
 }
 
@@ -225,6 +236,7 @@ std::string PhoneticEngine::flushActive() {
 
 void PhoneticEngine::clearActive() {
     m_activeCandidates.clear();
+    m_activeOverride.clear();
 }
 
 std::string PhoneticEngine::explain(const std::string& romanInput) {
