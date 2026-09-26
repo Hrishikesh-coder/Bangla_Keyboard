@@ -108,38 +108,41 @@ HICON TrayIcon::renderIcon(InputMode mode) const {
     HBITMAP colourBitmap = CreateDIBSection(memory, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
     HGDIOBJ oldBitmap = SelectObject(memory, colourBitmap);
 
-    COLORREF discColour;
+    COLORREF discColour = UiTheme::SURFACE_RAISED;
+    COLORREF textColour;
     const wchar_t* glyph;
     switch (mode) {
         case InputMode::BENGALI_PHONETIC:
-            discColour = UiTheme::MODE_PHONETIC;
+            textColour = UiTheme::MODE_PHONETIC;
             glyph = L"\u0985"; // অ
             break;
         case InputMode::BENGALI_FIXED:
-            discColour = UiTheme::MODE_FIXED;
+            textColour = UiTheme::MODE_FIXED;
             glyph = L"\u0995"; // ক
             break;
         default:
-            discColour = RGB(0x6B, 0x74, 0x86);
+            textColour = UiTheme::TEXT_MUTED;
             glyph = L"A";
             break;
     }
 
     RECT full { 0, 0, size, size };
     HBRUSH disc = CreateSolidBrush(discColour);
+    HPEN borderPen = CreatePen(PS_SOLID, 1, UiTheme::BORDER_SUBTLE);
     HGDIOBJ oldBrush = SelectObject(memory, disc);
-    HGDIOBJ oldPen = SelectObject(memory, GetStockObject(NULL_PEN));
+    HGDIOBJ oldPen = SelectObject(memory, borderPen);
     Ellipse(memory, 0, 0, size + 1, size + 1);
     SelectObject(memory, oldBrush);
     SelectObject(memory, oldPen);
     DeleteObject(disc);
+    DeleteObject(borderPen);
 
     HFONT font = (mode == InputMode::ENGLISH)
                      ? UiTheme::createUiFont(size * 5 / 12, 96, FW_BOLD)
                      : UiTheme::createBengaliFont(size * 6 / 12, 96, FW_SEMIBOLD);
     HGDIOBJ oldFont = SelectObject(memory, font);
     SetBkMode(memory, TRANSPARENT);
-    SetTextColor(memory, RGB(0x0E, 0x10, 0x14));
+    SetTextColor(memory, textColour);
     DrawTextW(memory, glyph, -1, &full,
               DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX | DT_NOCLIP);
     SelectObject(memory, oldFont);
