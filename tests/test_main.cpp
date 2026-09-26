@@ -10,6 +10,8 @@
 #include "core/ContextAnalyzer.h"
 #include "core/ExceptionDictionary.h"
 #include "core/FixedLayoutEngine.h"
+#include "core/InputBuffer.h"
+#include "core/SpecialCharPicker.h"
 
 #include <fstream>
 
@@ -742,6 +744,192 @@ static bool test_direct_candidate_selection() {
     return true;
 }
 
+
+// ---------------------------------------------------------------------------
+// UTF-8 correctness and trie completions
+// ---------------------------------------------------------------------------
+
+static bool test_trie_completions() {
+    TokenTrie trie;
+    trie.insert("k");
+    trie.insert("kh");
+    trie.insert("kkh");
+    trie.insert("g");
+    trie.insert("gh");
+
+    // Completions include the prefix itself when it is a registered token; the UI filters
+    // that out, because echoing back what the user already typed says nothing.
+    std::vector<std::string> fromK = trie.getCompletions("k");
+    TEST_ASSERT_EQ(fromK.size(), 3);
+
+    bool hasK = false, hasKh = false, hasKkh = false;
+    for (const auto& token : fromK) {
+        if (token == "k")   hasK = true;
+        if (token == "kh")  hasKh = true;
+        if (token == "kkh") hasKkh = true;
+    }
+    TEST_ASSERT(hasK && hasKh && hasKkh);
+
+    // limit caps the result set.
+    TEST_ASSERT_EQ(trie.getCompletions("k", 2).size(), 2);
+
+    // limit 0 means unlimited, not zero results.
+    TEST_ASSERT_EQ(trie.getCompletions("k", 0).size(), 3);
+
+    // A prefix that is not in the trie yields nothing rather than misbehaving.
+    TEST_ASSERT(trie.getCompletions("z").empty());
+    TEST_ASSERT(trie.getCompletions("kx").empty());
+
+    // A prefix that exists only as an interior path still completes.
+    TEST_ASSERT_EQ(trie.getCompletions("gh").size(), 1);
+
+    // Non-ASCII input must not walk the fixed-size child array out of range.
+    TEST_ASSERT(trie.getCompletions("\xE0\xA6\x95").empty());
+
+    return true;
+}
+
+static bool test_trie_rejects_non_ascii_tokens() {
+    TokenTrie trie;
+    trie.insert("k");
+    // A Bengali string is not a Roman token; inserting one must be a no-op rather than
+    // building a branch that can never be matched.
+    trie.insert("\xE0\xA6\x95");
+    TEST_ASSERT_EQ(trie.size(), 1);
+    TEST_ASSERT(!trie.contains("\xE0\xA6\x95"));
+    TEST_ASSERT(trie.contains("k"));
+    return true;
+}
+
+static bool test_input_buffer_utf8_backspace() {
+    InputBuffer buffer;
+
+    // ASCII: one byte, one backspace.
+    buffer.append("kal");
+    TEST_ASSERT(buffer.backspace());
+    TEST_ASSERT_EQ(buffer.content(), std::string("ka"));
+
+    // A three-byte Bengali character must be removed whole, not one byte at a time.
+    // Leaving a truncated sequence behind would make every later lookup operate on
+    // invalid UTF-8.
+    buffer.clear();
+    buffer.append("\xE0\xA6\x95");  // ক
+    TEST_ASSERT_EQ(buffer.content().size(), 3);
+    TEST_ASSERT(buffer.backspace());
+    TEST_ASSERT(buffer.empty());
+
+    // Mixed content: remove only the trailing multi-byte character.
+    buffer.clear();
+    buffer.append("a\xE0\xA6\x95");
+    TEST_ASSERT(buffer.backspace());
+    TEST_ASSERT_EQ(buffer.content(), std::string("a"));
+
+    // Backspacing an empty buffer reports that there was nothing to remove.
+    buffer.clear();
+    TEST_ASSERT(!buffer.backspace());
+
+    return true;
+}
+
+static bool test_tokenizer_preserves_utf8_characters() {
+    // Characters with no rule pass through. Before the UTF-8 fix a three-byte character
+    // was split into three separate one-byte tokens, so the output was mojibake.
+    SymbolTable table;
+    table.addRule("a", {"আ"});
+
+    Tokenizer tokenizer(table);
+
+    std::vector<std::string> tokens = tokenizer.tokenize("a\xE0\xA6\x95");
+    TEST_ASSERT_EQ(tokens.size(), 2);
+    TEST_ASSERT_EQ(tokens[0], std::string("a"));
+    TEST_ASSERT_EQ(tokens[1], std::string("\xE0\xA6\x95"));
+
+    // A two-byte sequence.
+    tokens = tokenizer.tokenize("\xC3\xA9");
+    TEST_ASSERT_EQ(tokens.size(), 1);
+    TEST_ASSERT_EQ(tokens[0], std::string("\xC3\xA9"));
+
+    // A truncated sequence at the end of input must not read past the buffer.
+    tokens = tokenizer.tokenize("a\xE0\xA6");
+    TEST_ASSERT_EQ(tokens.size(), 2);
+    TEST_ASSERT_EQ(tokens[1], std::string("\xE0\xA6"));
+
+    return true;
+}
+
+static bool test_special_picker_survives_modifier_release() {
+    // The picker is opened with Ctrl+Shift+D. Releasing Ctrl or Shift afterwards used to
+    // count as "any other key" and cancel it, so the menu closed before a digit could be
+    // pressed - the shortcut cancelled itself.
+    SpecialCharPicker picker;
+    picker.activate();
+    TEST_ASSERT(picker.isActive());
+
+    TEST_ASSERT(!picker.handleKey(0x10).has_value()); // VK_SHIFT
+    TEST_ASSERT(picker.isActive());
+    TEST_ASSERT(!picker.handleKey(0x11).has_value()); // VK_CONTROL
+    TEST_ASSERT(picker.isActive());
+    TEST_ASSERT(!picker.handleKey(0xA0).has_value()); // VK_LSHIFT
+    TEST_ASSERT(picker.isActive());
+    TEST_ASSERT(!picker.handleKey(0xA2).has_value()); // VK_LCONTROL
+    TEST_ASSERT(picker.isActive());
+
+    // The digit still works after all that.
+    auto picked = picker.handleKey('1');
+    TEST_ASSERT(picked.has_value());
+    TEST_ASSERT_EQ(picked.value(), std::string("\u09CE")); // ৎ
+    TEST_ASSERT(!picker.isActive());
+
+    // A genuinely unrelated key still cancels.
+    picker.activate();
+    TEST_ASSERT(!picker.handleKey('X').has_value());
+    TEST_ASSERT(!picker.isActive());
+
+    return true;
+}
+
+static bool test_exception_override_reaches_live_preview() {
+    // The overlay composes from the active candidate list, so an override that only
+    // applied inside transliterate() would show the rule-based guess while typing and
+    // silently change on commit.
+    PhoneticEngine engine;
+    TEST_ASSERT(loadProductionConfig(engine));
+
+    engine.updateActiveBuffer("dhonnobad");
+    TEST_ASSERT_EQ(engine.getActiveComposedString(), std::string("ধন্যবাদ"));
+    TEST_ASSERT_EQ(engine.getActiveComposedString(), engine.transliterate("dhonnobad"));
+
+    // English passthrough behaves the same way.
+    engine.updateActiveBuffer("download");
+    TEST_ASSERT_EQ(engine.getActiveComposedString(), std::string("download"));
+
+    // A word with no override is still composed from the rules.
+    engine.updateActiveBuffer("bangla");
+    TEST_ASSERT_EQ(engine.getActiveComposedString(), std::string("বাংলা"));
+
+    return true;
+}
+
+static bool test_exception_dictionary_case_collision() {
+    // Two entries differing only in case: the later one must win in both maps, so exact
+    // and case-insensitive lookup cannot disagree with each other.
+    ExceptionDictionary dict;
+    dict.add("ok", "ঠিক");
+    dict.add("OK", "ওকে");
+
+    std::string out;
+    TEST_ASSERT(dict.lookup("ok", out));
+    TEST_ASSERT_EQ(out, "ঠিক");        // exact match still wins
+
+    TEST_ASSERT(dict.lookup("OK", out));
+    TEST_ASSERT_EQ(out, "ওকে");        // exact match still wins
+
+    TEST_ASSERT(dict.lookup("Ok", out)); // falls through to the lowercase map
+    TEST_ASSERT_EQ(out, "ওকে");
+
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Fixed layout engine
 // ---------------------------------------------------------------------------
@@ -843,6 +1031,13 @@ int main() {
     RUN_TEST(test_candidate_cycling_end_to_end);
     RUN_TEST(test_punctuation_and_unknown_passthrough);
     RUN_TEST(test_direct_candidate_selection);
+    RUN_TEST(test_trie_completions);
+    RUN_TEST(test_trie_rejects_non_ascii_tokens);
+    RUN_TEST(test_input_buffer_utf8_backspace);
+    RUN_TEST(test_tokenizer_preserves_utf8_characters);
+    RUN_TEST(test_special_picker_survives_modifier_release);
+    RUN_TEST(test_exception_override_reaches_live_preview);
+    RUN_TEST(test_exception_dictionary_case_collision);
     RUN_TEST(test_fixed_layout_engine);
     RUN_TEST(test_shipped_layout_is_complete);
 
