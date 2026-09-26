@@ -84,6 +84,7 @@ private:
     int m_hoverRow = -1;
     int m_hoverCol = -1;
     bool m_shift = false;
+    bool m_altgr = false;
     bool m_visible = false;
     bool m_trackingMouse = false;
 

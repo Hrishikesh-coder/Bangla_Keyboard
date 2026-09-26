@@ -938,7 +938,9 @@ static bool test_fixed_layout_engine() {
     FixedLayoutEngine layout;
     TEST_ASSERT(layout.loadFromString(R"({
         "name": "test layout",
-        "map": { "k": "ক", "a": "া", "z": "্", "S": "ষ" }
+        "base":  { "k": "ক", "a": "া", "/": "্" },
+        "shift": { "S": "ষ" },
+        "altgr": { ".": "়" }
     })"));
 
     TEST_ASSERT_EQ(layout.layoutName(), std::string("test layout"));
@@ -947,11 +949,22 @@ static bool test_fixed_layout_engine() {
 
     TEST_ASSERT_EQ(layout.mapKey('k'), std::string("ক"));
 
-    // Unmapped keys pass through unchanged.
-    TEST_ASSERT_EQ(layout.mapKey('Q'), std::string("Q"));
+    // Shift shares the base map: the keyboard has already applied it, so 'S' is just
+    // another key as far as the engine is concerned.
+    TEST_ASSERT(layout.isMapped('S'));
+    TEST_ASSERT_EQ(layout.mapKey('S'), std::string("ষ"));
 
-    // The typist builds conjuncts explicitly with the hasant key: k z S -> ক্ষ
-    TEST_ASSERT_EQ(layout.mapText("kzS"), cp({0x0995, 0x09CD, 0x09B7}));
+    // AltGr is a genuinely separate level on the same physical key.
+    TEST_ASSERT(!layout.isMapped('.', FixedLayoutEngine::Level::Base));
+    TEST_ASSERT(layout.isMapped('.', FixedLayoutEngine::Level::AltGr));
+    TEST_ASSERT_EQ(layout.mapKey('.', FixedLayoutEngine::Level::AltGr), std::string("়"));
+
+    // Unmapped keys pass through unchanged, at every level.
+    TEST_ASSERT_EQ(layout.mapKey('Q'), std::string("Q"));
+    TEST_ASSERT_EQ(layout.mapKey('k', FixedLayoutEngine::Level::AltGr), std::string("k"));
+
+    // The typist builds conjuncts explicitly with the hasant key: k / S -> ক্ষ
+    TEST_ASSERT_EQ(layout.mapText("k/S"), cp({0x0995, 0x09CD, 0x09B7}));
 
     // Fixed layouts are stateless: the same key always gives the same glyph.
     TEST_ASSERT_EQ(layout.mapText("kaka"), layout.mapText("ka") + layout.mapText("ka"));
@@ -959,38 +972,92 @@ static bool test_fixed_layout_engine() {
     return true;
 }
 
-static bool test_shipped_layout_is_complete() {
+static bool test_legacy_single_map_layout_still_loads() {
+    // Layouts written for the two-level engine used one flat "map" object.
+    FixedLayoutEngine layout;
+    TEST_ASSERT(layout.loadFromString(R"({
+        "name": "legacy",
+        "map": { "k": "ক", "K": "খ" }
+    })"));
+    TEST_ASSERT_EQ(layout.mapKey('k'), std::string("ক"));
+    TEST_ASSERT_EQ(layout.mapKey('K'), std::string("খ"));
+    return true;
+}
+
+static bool test_shipped_layout_matches_probhat() {
     FixedLayoutEngine layout;
     TEST_ASSERT(layout.loadFromFile(findConfig("layout_probhat.json")));
+    TEST_ASSERT_EQ(layout.layoutName(), std::string("Probhat"));
 
-    // Every Bengali consonant, independent vowel and matra must be reachable from
-    // some key, or the layout cannot type the language.
+    // Spot-checks against the canonical X11 ben_probhat definition. These are exactly the
+    // keys an earlier draft of this file got wrong, so they are the ones worth pinning.
+    TEST_ASSERT_EQ(layout.mapKey('/'), cp({0x09CD}));  // hasant, NOT on 'z'
+    TEST_ASSERT_EQ(layout.mapKey('z'), cp({0x09DF}));  // য়
+    TEST_ASSERT_EQ(layout.mapKey('x'), cp({0x09B6}));  // শ
+    TEST_ASSERT_EQ(layout.mapKey('Z'), cp({0x09AF}));  // য
+    TEST_ASSERT_EQ(layout.mapKey('S'), cp({0x09B7}));  // ষ
+    TEST_ASSERT_EQ(layout.mapKey('H'), cp({0x0983}));  // ঃ
+    TEST_ASSERT_EQ(layout.mapKey('>'), cp({0x0981}));  // ঁ
+    TEST_ASSERT_EQ(layout.mapKey('E'), cp({0x0988}));  // ঈ
+    TEST_ASSERT_EQ(layout.mapKey('Y'), cp({0x0990}));  // ঐ
+    TEST_ASSERT_EQ(layout.mapKey('&'), cp({0x099E}));  // ঞ
+    TEST_ASSERT_EQ(layout.mapKey('*'), cp({0x09CE}));  // ৎ
+
+    // Probhat specifies the precomposed codepoints, not consonant + nukta.
+    TEST_ASSERT_EQ(layout.mapKey('R'), cp({0x09DC}));  // ড়
+    TEST_ASSERT_EQ(layout.mapKey('X'), cp({0x09DD}));  // ঢ়
+
+    // AltGr level.
+    TEST_ASSERT_EQ(layout.mapKey('.', FixedLayoutEngine::Level::AltGr), cp({0x09BC})); // ়
+    TEST_ASSERT_EQ(layout.mapKey(']', FixedLayoutEngine::Level::AltGr), cp({0x09D7})); // ৗ
+    TEST_ASSERT_EQ(layout.mapKey('h', FixedLayoutEngine::Level::AltGr), cp({0x09BD})); // ঽ
+
+    // Zero-width joiner and non-joiner, used to force or forbid a ligature.
+    TEST_ASSERT_EQ(layout.mapKey('`'),  cp({0x200D}));
+    TEST_ASSERT_EQ(layout.mapKey('\\'), cp({0x200C}));
+
+    // Bengali digits.
+    TEST_ASSERT_EQ(layout.mapText("2026"), std::string("২০২৬"));
+
+    // Every Bengali letter, matra and sign must be reachable from some key at some level,
+    // or the layout cannot type the language.
+    // Spelled as explicit codepoints, not as source literals. ড় can be written either as
+    // U+09DC or as U+09A1 U+09BC, and the two are different strings even though an editor
+    // renders them identically -- which is precisely the distinction this file exists to
+    // get right.
     const std::vector<std::string> required = {
-        "ক","খ","গ","ঘ","ঙ","চ","ছ","জ","ঝ","ঞ","ট","ঠ","ড","ঢ","ণ",
-        "ত","থ","দ","ধ","ন","প","ফ","ব","ভ","ম","য","র","ল","শ","ষ","স","হ",
-        "ড়","ঢ়","য়","ৎ",
-        "অ","আ","ই","ঈ","উ","ঊ","ঋ","এ","ঐ","ও","ঔ",
-        "া","ি","ী","ু","ূ","ৃ","ে","ৈ","ো","ৌ",
-        "্","ং","ঃ","ঁ","়"
+        cp({0x0995}), cp({0x0996}), cp({0x0997}), cp({0x0998}), cp({0x0999}),
+        cp({0x099A}), cp({0x099B}), cp({0x099C}), cp({0x099D}), cp({0x099E}),
+        cp({0x099F}), cp({0x09A0}), cp({0x09A1}), cp({0x09A2}), cp({0x09A3}),
+        cp({0x09A4}), cp({0x09A5}), cp({0x09A6}), cp({0x09A7}), cp({0x09A8}),
+        cp({0x09AA}), cp({0x09AB}), cp({0x09AC}), cp({0x09AD}), cp({0x09AE}),
+        cp({0x09AF}), cp({0x09B0}), cp({0x09B2}), cp({0x09B6}), cp({0x09B7}),
+        cp({0x09B8}), cp({0x09B9}),
+        cp({0x09DC}), cp({0x09DD}), cp({0x09DF}), cp({0x09CE}),
+        cp({0x0985}), cp({0x0986}), cp({0x0987}), cp({0x0988}), cp({0x0989}),
+        cp({0x098A}), cp({0x098B}), cp({0x098F}), cp({0x0990}), cp({0x0993}),
+        cp({0x0994}),
+        cp({0x09BE}), cp({0x09BF}), cp({0x09C0}), cp({0x09C1}), cp({0x09C2}),
+        cp({0x09C3}), cp({0x09C7}), cp({0x09C8}), cp({0x09CB}), cp({0x09CC}),
+        cp({0x09CD}), cp({0x0982}), cp({0x0983}), cp({0x0981}), cp({0x09BC})
     };
 
     for (const auto& glyph : required) {
         bool found = false;
-        for (const auto& [key, value] : layout.keyMap()) {
-            (void)key;
-            if (value == glyph) {
-                found = true;
-                break;
+        for (auto level : { FixedLayoutEngine::Level::Base, FixedLayoutEngine::Level::AltGr }) {
+            for (const auto& [key, value] : layout.keyMap(level)) {
+                (void)key;
+                if (value == glyph) { found = true; break; }
             }
+            if (found) break;
         }
         if (!found) {
-            std::cerr << "  missing glyph in layout: " << glyph << "\n";
+            std::cerr << "  missing glyph in layout: " << glyph
+                      << " (" << UnicodeComposer::utf8ToCodepoints(glyph).size()
+                      << " codepoints)\n";
             return false;
         }
     }
-
-    // Bengali digits ০-৯ must be present too.
-    TEST_ASSERT_EQ(layout.mapText("2026"), std::string("২০২৬"));
 
     return true;
 }
@@ -1039,7 +1106,8 @@ int main() {
     RUN_TEST(test_exception_override_reaches_live_preview);
     RUN_TEST(test_exception_dictionary_case_collision);
     RUN_TEST(test_fixed_layout_engine);
-    RUN_TEST(test_shipped_layout_is_complete);
+    RUN_TEST(test_legacy_single_map_layout_still_loads);
+    RUN_TEST(test_shipped_layout_matches_probhat);
 
     std::cout << "\n----------------------------------------\n";
     std::cout << "Results: " << g_testsPassed << "/" << g_testsRun << " passed";
