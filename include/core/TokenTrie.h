@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 /**
  * @brief Prefix tree over the Roman tokens registered in the SymbolTable.
@@ -23,8 +24,8 @@ class TokenTrie {
 public:
     TokenTrie() = default;
 
-    /// Inserts a token. Re-inserting the same token is harmless.
-    void insert(const std::string& token);
+    /// Inserts a token with an optional frequency/priority weight.
+    void insert(const std::string& token, int weight = 0);
 
     /// Removes every token.
     void clear();
@@ -40,10 +41,10 @@ public:
 
     /**
      * @brief Finds all registered tokens that start with the given prefix.
-     * Useful for autocomplete suggestions.
+     * Includes 1-edit-distance fuzzy matching (typo tolerance) for prefixes.
      * @param prefix The prefix to search for.
      * @param limit Maximum number of completions to return (0 for unlimited).
-     * @return A list of matching tokens in lexicographical order.
+     * @return A list of matching tokens sorted by weight, then length.
      */
     std::vector<std::string> getCompletions(const std::string& prefix, size_t limit = 0) const;
 
@@ -54,9 +55,15 @@ private:
     struct Node {
         std::array<std::unique_ptr<Node>, 128> children{};
         bool terminal = false;
+        int weight = 0;
     };
 
-    void collectCompletions(const Node* node, std::string currentPrefix, std::vector<std::string>& results, size_t limit) const;
+    void fuzzyCollect(const Node* node, const std::string& target, size_t targetPos, 
+                      std::string currentPath, int editsLeft, 
+                      std::unordered_map<std::string, int>& foundCompletions) const;
+
+    void collectCompletions(const Node* node, std::string currentPrefix, 
+                            std::unordered_map<std::string, int>& foundCompletions, int penalty = 0) const;
 
     Node m_root;
     size_t m_size = 0;

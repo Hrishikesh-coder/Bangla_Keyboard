@@ -1,6 +1,7 @@
 #include "core/TokenTrie.h"
+#include <algorithm>
 
-void TokenTrie::insert(const std::string& token) {
+void TokenTrie::insert(const std::string& token, int weight) {
     if (token.empty()) {
         return;
     }
@@ -25,6 +26,8 @@ void TokenTrie::insert(const std::string& token) {
         node->terminal = true;
         ++m_size;
     }
+    // Set or update the frequency weight (higher is better)
+    node->weight = std::max(node->weight, weight);
 }
 
 void TokenTrie::clear() {
@@ -68,37 +71,103 @@ bool TokenTrie::contains(const std::string& token) const {
     return node->terminal;
 }
 
-void TokenTrie::collectCompletions(const Node* node, std::string currentPrefix, std::vector<std::string>& results, size_t limit) const {
-    if (!node || (limit > 0 && results.size() >= limit)) {
-        return;
-    }
+void TokenTrie::collectCompletions(const Node* node, std::string currentPrefix, 
+                                   std::unordered_map<std::string, int>& foundCompletions, int penalty) const {
+    if (!node) return;
     
     if (node->terminal) {
-        results.push_back(currentPrefix);
+        int score = node->weight - penalty;
+        // Keep highest score if reached multiple ways
+        auto it = foundCompletions.find(currentPrefix);
+        if (it == foundCompletions.end() || it->second < score) {
+            foundCompletions[currentPrefix] = score;
+        }
     }
     
     for (size_t i = 0; i < 128; ++i) {
         if (node->children[i]) {
-            collectCompletions(node->children[i].get(), currentPrefix + static_cast<char>(i), results, limit);
-            if (limit > 0 && results.size() >= limit) {
-                return;
+            collectCompletions(node->children[i].get(), currentPrefix + static_cast<char>(i), foundCompletions, penalty);
+        }
+    }
+}
+
+void TokenTrie::fuzzyCollect(const Node* node, const std::string& target, size_t targetPos, 
+                             std::string currentPath, int editsLeft, 
+                             std::unordered_map<std::string, int>& foundCompletions) const {
+    if (!node) return;
+
+    if (targetPos == target.length()) {
+        // We reached the end of the prefix. 
+        // 1 typo = 1000 penalty. This ensures EXACT matches always appear before fuzzy ones!
+        int initialEdits = 1; // Assuming max 1 edit
+        int editsUsed = initialEdits - editsLeft;
+        int penalty = editsUsed * 1000;
+        
+        collectCompletions(node, currentPath, foundCompletions, penalty);
+        return;
+    }
+
+    char expectedChar = target[targetPos];
+    auto expectedIndex = static_cast<unsigned char>(expectedChar);
+
+    // 1. Exact Match (No penalty)
+    if (expectedIndex < 128 && node->children[expectedIndex]) {
+        fuzzyCollect(node->children[expectedIndex].get(), target, targetPos + 1, 
+                     currentPath + expectedChar, editsLeft, foundCompletions);
+    }
+
+    // 2. Fuzzy Branches (Typo Tolerance)
+    if (editsLeft > 0) {
+        // Deletion: The user typed an extra letter by accident. We skip it in the target.
+        fuzzyCollect(node, target, targetPos + 1, currentPath, editsLeft - 1, foundCompletions);
+
+        for (size_t i = 0; i < 128; ++i) {
+            if (node->children[i]) {
+                char childChar = static_cast<char>(i);
+                
+                // Substitution: User hit the wrong key. Skip target char, consume trie char.
+                if (i != expectedIndex) {
+                    fuzzyCollect(node->children[i].get(), target, targetPos + 1, 
+                                 currentPath + childChar, editsLeft - 1, foundCompletions);
+                }
+                
+                // Insertion: User missed a key. Keep target char, consume trie char.
+                fuzzyCollect(node->children[i].get(), target, targetPos, 
+                             currentPath + childChar, editsLeft - 1, foundCompletions);
             }
         }
     }
 }
 
 std::vector<std::string> TokenTrie::getCompletions(const std::string& prefix, size_t limit) const {
-    std::vector<std::string> results;
+    std::unordered_map<std::string, int> foundCompletions;
     
-    const Node* node = &m_root;
-    for (char ch : prefix) {
-        auto index = static_cast<unsigned char>(ch);
-        if (index >= 128 || !node->children[index]) {
-            return results; // Prefix not found
+    // We allow 1 edit distance for typo tolerance ONLY for longer prefixes
+    // Otherwise it matches the entire dictionary by deleting the 1st character!
+    int maxEdits = (prefix.length() > 2) ? 1 : 0; 
+    
+    fuzzyCollect(&m_root, prefix, 0, "", maxEdits, foundCompletions);
+    
+    // Transfer to vector for priority sorting (Best-First)
+    std::vector<std::pair<std::string, int>> sortedList(foundCompletions.begin(), foundCompletions.end());
+    
+    std::sort(sortedList.begin(), sortedList.end(), [](const auto& a, const auto& b) {
+        if (a.second != b.second) {
+            return a.second > b.second; // Descending score (Frequency/Priority)
         }
-        node = node->children[index].get();
+        if (a.first.length() != b.first.length()) {
+            return a.first.length() < b.first.length(); // Ascending length
+        }
+        return a.first < b.first; // Alphabetical fallback
+    });
+    
+    std::vector<std::string> results;
+    for (const auto& item : sortedList) {
+        results.push_back(item.first);
+        if (limit > 0 && results.size() >= limit) {
+            break;
+        }
     }
     
-    collectCompletions(node, prefix, results, limit);
     return results;
 }
