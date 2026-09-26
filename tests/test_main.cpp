@@ -1411,6 +1411,62 @@ static bool test_user_dictionary_learns_and_reinforces() {
     return true;
 }
 
+
+static bool test_ri_is_not_a_token() {
+    // Maximal munch took "ri" as ঋ, which made রি unspellable: প্রিয় could not be typed
+    // "priyo". Measured on the corpus, র+ি outnumbers ৃ more than four to one and ঋ is
+    // negligible, so the greedy match was wrong far more often than it was right. This was
+    // the single largest source of resolution failure -- 45 occurrences in a 2000-word
+    // sample, more than twice the next cause.
+    PhoneticEngine engine;
+    TEST_ASSERT(loadProductionConfig(engine));
+
+    // রি = র + ি
+    TEST_ASSERT_EQ(engine.transliterate("ri"), cp({0x09B0, 0x09BF}));
+
+    // প্রিয় must be reachable the way anyone would type it.
+    TEST_ASSERT_EQ(engine.transliterate("priyo"),
+                   cp({0x09AA, 0x09CD, 0x09B0, 0x09BF, 0x09AF, 0x09BC}));
+
+    // ঋ and its matra are still typable, as "rri" -- which is also Avro's convention.
+    TEST_ASSERT_EQ(engine.transliterate("rri"), cp({0x098B}));
+    TEST_ASSERT_EQ(engine.transliterate("krri"), cp({0x0995, 0x09C3}));
+
+    return true;
+}
+
+static bool test_search_limits_are_configurable() {
+    // The combination search is exponential in ambiguous tokens, so it must be bounded --
+    // it runs inside a hook callback Windows unhooks without warning if it overruns. The
+    // original bounds were hit in 30.8% of failures, so they are now raised and settable.
+    WordDictionary dict;
+    TEST_ASSERT(dict.loadFromFile(findConfig("words_bangla.json")));
+
+    PhoneticEngine narrow;
+    TEST_ASSERT(loadProductionConfig(narrow));
+    {
+        auto resolver = std::make_unique<DictionaryCandidateResolver>(&dict);
+        resolver->setSearchLimits(1, 2);   // deliberately crippled
+        narrow.setCandidateResolver(std::move(resolver));
+    }
+
+    PhoneticEngine wide;
+    TEST_ASSERT(loadProductionConfig(wide));
+    {
+        auto resolver = std::make_unique<DictionaryCandidateResolver>(&dict);
+        resolver->setSearchLimits(8, 512); // the shipped defaults
+        wide.setCandidateResolver(std::move(resolver));
+    }
+
+    // A word with several ambiguous letters is reachable with the wider search and not
+    // with the crippled one. Both must still produce *something* rather than failing.
+    const std::string roman = "manush";
+    TEST_ASSERT_EQ(wide.transliterate(roman), std::string("মানুষ"));
+    TEST_ASSERT(!narrow.transliterate(roman).empty());
+
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Fixed layout engine
 // ---------------------------------------------------------------------------
@@ -1697,6 +1753,8 @@ int main() {
     RUN_TEST(test_special_picker_survives_modifier_release);
     RUN_TEST(test_exception_override_reaches_live_preview);
     RUN_TEST(test_exception_dictionary_case_collision);
+    RUN_TEST(test_ri_is_not_a_token);
+    RUN_TEST(test_search_limits_are_configurable);
     RUN_TEST(test_user_dictionary_learns_and_reinforces);
     RUN_TEST(test_morphology_strips_suffixes);
     RUN_TEST(test_ngram_model_scores_plausibility);

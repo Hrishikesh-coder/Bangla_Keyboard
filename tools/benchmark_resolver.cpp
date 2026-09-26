@@ -207,6 +207,12 @@ int main(int argc, char* argv[]) {
     if (argc > 3) {
         offset = static_cast<size_t>(std::stoul(argv[3]));
     }
+    size_t maxTokens = 8;
+    size_t maxCombos = 512;
+    if (argc > 5) {
+        maxTokens = static_cast<size_t>(std::stoul(argv[4]));
+        maxCombos = static_cast<size_t>(std::stoul(argv[5]));
+    }
 
     PhoneticEngine reference;
     if (!reference.loadRules(findConfig("phonetic_rules.json"))) {
@@ -286,7 +292,11 @@ int main(int argc, char* argv[]) {
     PhoneticEngine smart;
     smart.loadRules(findConfig("phonetic_rules.json"));
     smart.loadExceptions(findConfig("exceptions.json"));
-    smart.setCandidateResolver(std::make_unique<DictionaryCandidateResolver>(&dictionary));
+    {
+        auto resolver = std::make_unique<DictionaryCandidateResolver>(&dictionary);
+        resolver->setSearchLimits(maxTokens, maxCombos);
+        smart.setCandidateResolver(std::move(resolver));
+    }
 
     // Held-out, whole-word lookup only: the baseline the statistical tiers have to beat.
     PhoneticEngine generalising;
@@ -295,6 +305,7 @@ int main(int argc, char* argv[]) {
     {
         auto resolver = std::make_unique<DictionaryCandidateResolver>(&heldOut);
         resolver->setMorphologyEnabled(false);
+        resolver->setSearchLimits(maxTokens, maxCombos);
         generalising.setCandidateResolver(std::move(resolver));
     }
 
@@ -305,6 +316,7 @@ int main(int argc, char* argv[]) {
     {
         auto resolver = std::make_unique<DictionaryCandidateResolver>(&heldOut);
         resolver->setMorphologyEnabled(true);
+        resolver->setSearchLimits(maxTokens, maxCombos);
         withMorphology.setCandidateResolver(std::move(resolver));
     }
 
@@ -321,6 +333,7 @@ int main(int argc, char* argv[]) {
         resolver->setMorphologyEnabled(true);
         resolver->setNgramModel(&ngram);
         resolver->setNgramMargin(ngramMargin);
+        resolver->setSearchLimits(maxTokens, maxCombos);
         withNgram.setCandidateResolver(std::move(resolver));
     }
 

@@ -78,13 +78,13 @@ void DictionaryCandidateResolver::evaluateWord(const std::vector<Candidate>& all
     }
 
     // Cap the search to at most 5 ambiguous tokens and 64 total combinations to keep it ultra fast
-    size_t activeCount = std::min<size_t>(ambiguousIndices.size(), 5);
+    size_t activeCount = std::min<size_t>(ambiguousIndices.size(), m_maxTokens);
     size_t totalCombinations = 1;
     for (size_t i = 0; i < activeCount; ++i) {
         size_t optCount = allCandidates[ambiguousIndices[i]].options.size();
         totalCombinations *= optCount;
-        if (totalCombinations > 64) {
-            totalCombinations = 64;
+        if (totalCombinations > m_maxCombinations) {
+            totalCombinations = m_maxCombinations;
             break;
         }
     }

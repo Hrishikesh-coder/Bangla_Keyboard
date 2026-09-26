@@ -26,9 +26,44 @@ letter, i.e. where the resolver has real work to do:
 
 | Resolver | Correct | Accuracy |
 |---|---|---|
-| `DefaultCandidateResolver` (always candidate 0) | 751 / 1922 | **39.1%** |
-| `DictionaryCandidateResolver`, word present in dictionary | 1592 / 1922 | **82.8%** |
-| `DictionaryCandidateResolver`, **word held out** | 961 / 1922 | **50.0%** |
+| `DefaultCandidateResolver` (always candidate 0) | 774 / 1922 | **40.3%** |
+| `DictionaryCandidateResolver`, word present in dictionary | 1702 / 1922 | **88.6%** |
+| `DictionaryCandidateResolver`, **word held out** | 1084 / 1922 | **56.4%** |
+
+## Finding the errors before guessing at fixes
+
+The first round of improvements was chosen by reasoning about what *might* be wrong. The
+second was chosen by counting what actually was: for every failure, which letters came out
+different, and whether the resolver's search had been truncated.
+
+Two causes dominated, and neither was the one I would have guessed.
+
+**`ri` was tokenised as ঋ** — 45 occurrences in a 2000-word sample, more than twice the next
+cause. Maximal munch took `ri` as a single token, which made রি unspellable: প্রিয় could not
+be typed `priyo` at all. Counting the corpus settles it — র+ি appears in words totalling
+38,181 occurrences, ৃ in 8,733, ঋ in 216 — so the greedy match was wrong roughly four times
+for every time it was right. The token is now gone; ঋ and ৃ are typed `rri`, which is also
+Avro's convention. This was a **tokenizer** bug that had been costing the *resolver* its
+accuracy score.
+
+**The search cap was hit in 30.8% of failures.** The resolver explored at most 5 ambiguous
+tokens and 64 combinations, and was giving up before reaching the answer. Raising it to
+8 and 512 recovered most of the rest; beyond that the curve is flat.
+
+| Search limits | Held-out accuracy |
+|---|---|
+| 5 tokens, 64 combinations | 55.7% |
+| **8 tokens, 512 combinations** | **56.4%** |
+| 10 / 4096 | 56.5% |
+| 12 / 32768 | 56.5% |
+
+Cost: **0.54 ms per keystroke** for a sixteen-character word with the full pipeline —
+contextual resolution, dictionary search, morphology and the character model. Windows
+unhooks a low-level hook that exceeds 300 ms, so that is a factor of 550 in hand.
+
+After both fixes, in-dictionary failures fell from 17.1% to 11.4% and the remaining
+confusions are a flat tail with no dominant cause: ী/ি, ট/ত, ন/ণ, শ/স. Those are genuine
+homophones, which positional context cannot resolve by definition.
 
 ## Closing the generalisation gap
 
@@ -38,9 +73,9 @@ words ranked 2000–4000, so the number below is not fitted to itself.
 
 | Resolver on held-out words | Correct | Accuracy |
 |---|---|---|
-| whole-word lookup only | 961 / 1922 | 50.0% |
-| + morphological stem lookup | 1019 / 1922 | **53.0%** |
-| + character trigram model (margin 4) | 1039 / 1922 | **54.1%** |
+| whole-word lookup only | 1004 / 1922 | 52.2% |
+| + morphological stem lookup | 1067 / 1922 | **55.5%** |
+| + character trigram model (margin 4) | 1084 / 1922 | **56.4%** |
 
 **Morphological stripping** is the larger and simpler win. Bangla is agglutinative: বাড়িতে
 is rarely in a word list, বাড়ি always is, and the ambiguous letters live in the stem rather
