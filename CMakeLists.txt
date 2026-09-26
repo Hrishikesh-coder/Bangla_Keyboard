@@ -17,6 +17,7 @@ include_directories(
 
 # Core engine sources
 set(CORE_SOURCES
+    src/core/BanglaText.cpp
     src/core/CandidateResolver.cpp
     src/core/ContextAnalyzer.cpp
     src/core/ExceptionDictionary.cpp

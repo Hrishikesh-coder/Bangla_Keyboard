@@ -75,6 +75,17 @@ public:
     /// Pushes the current composition state into the candidate window.
     static void refreshUi();
 
+    /**
+     * @brief Enables per-keystroke timing, reported to the console under --verbose.
+     *
+     * Worth having because the failure mode is invisible. Windows silently unhooks a
+     * low-level hook whose callback exceeds LowLevelHooksTimeout (300 ms by default);
+     * there is no error and no notification -- the keyboard simply stops transliterating.
+     * Fuzzy matching, contextual resolution and dictionary prediction all run inside that
+     * callback on every keystroke, so the budget is worth knowing rather than assuming.
+     */
+    static void setTimingEnabled(bool enabled);
+
     /// Uninstalls the active hook.
     void uninstall();
 

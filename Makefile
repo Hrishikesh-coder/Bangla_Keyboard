@@ -8,7 +8,8 @@
 CXX      = g++
 CXXFLAGS = -std=c++17 -Wall -Wextra -O2 -Iinclude -Ithird_party
 
-CORE_SRCS = src/core/CandidateResolver.cpp \
+CORE_SRCS = src/core/BanglaText.cpp \
+            src/core/CandidateResolver.cpp \
             src/core/ContextAnalyzer.cpp \
             src/core/ExceptionDictionary.cpp \
             src/core/FixedLayoutEngine.cpp \
@@ -61,6 +62,14 @@ endif
 
 all: $(ALL_TARGETS)
 
+bin/benchmark_resolver$(EXE): tools/benchmark_resolver.cpp $(CORE_SRCS)
+	$(call MKDIR,bin)
+	$(CXX) $(CXXFLAGS) -o $@ tools/benchmark_resolver.cpp $(CORE_SRCS)
+
+bench: bin/benchmark_resolver$(EXE) copy_config
+	cd bin && ./benchmark_resolver$(EXE) 2000
+
+
 bin/shobdomala$(EXE): $(APP_SRCS)
 	$(call MKDIR,bin)
 	$(CXX) $(CXXFLAGS) -o $@ $(APP_SRCS) $(LDFLAGS)
@@ -79,4 +88,4 @@ test: bin/shobdomala_tests$(EXE) copy_config
 clean:
 	$(RMDIR)
 
-.PHONY: all clean test copy_config
+.PHONY: all clean test bench copy_config

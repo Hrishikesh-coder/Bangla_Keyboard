@@ -74,6 +74,14 @@ public:
                                         int maxDistance = 2,
                                         size_t limit = 5) const;
 
+    /**
+     * @brief The `limit` most frequent words in the dictionary.
+     *
+     * Used by the resolver benchmark to sample the words a user actually types, rather
+     * than a uniform sample of the long tail, which is mostly proper nouns and noise.
+     */
+    std::vector<WordSuggestion> topWords(size_t limit) const;
+
     size_t size() const { return m_wordCount; }
     void clear();
 

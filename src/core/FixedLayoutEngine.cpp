@@ -1,4 +1,5 @@
 #include "core/FixedLayoutEngine.h"
+#include "core/BanglaText.h"
 
 #include <nlohmann/json.hpp>
 #include <fstream>
@@ -23,7 +24,12 @@ size_t readLevelInto(const json& root, const char* field,
             continue;
         }
         if (value.is_string()) {
-            out[key[0]] = value.get<std::string>();
+            // The Probhat chart specifies the precomposed ড় and ঢ়, which are the odd ones
+            // out in this codebase: the phonetic rules, the exception dictionary and the
+            // word list are all decomposed. Normalising here means text typed on the
+            // layout is byte-identical to the same text typed phonetically, and can be
+            // looked up in the same dictionary.
+            out[key[0]] = BanglaText::normalize(value.get<std::string>());
             ++count;
         }
     }

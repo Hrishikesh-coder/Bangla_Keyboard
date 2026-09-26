@@ -11,7 +11,7 @@ copy /Y config\layout_probhat.json bin\config\layout_probhat.json >nul
 copy /Y config\words_bangla.json bin\config\words_bangla.json >nul
 
 set CXX_FLAGS=-std=c++17 -Wall -Wextra -O2 -Iinclude -Ithird_party -static
-set CORE_SRCS=src\core\CandidateResolver.cpp src\core\ContextAnalyzer.cpp src\core\ExceptionDictionary.cpp src\core\FixedLayoutEngine.cpp src\core\InputBuffer.cpp src\core\PhoneticEngine.cpp src\core\SpecialCharPicker.cpp src\core\SuggestionPolicy.cpp src\core\SymbolTable.cpp src\core\TokenContext.cpp src\core\Tokenizer.cpp src\core\TokenTrie.cpp src\core\UnicodeComposer.cpp src\core\WordDictionary.cpp
+set CORE_SRCS=src\core\BanglaText.cpp src\core\CandidateResolver.cpp src\core\ContextAnalyzer.cpp src\core\ExceptionDictionary.cpp src\core\FixedLayoutEngine.cpp src\core\InputBuffer.cpp src\core\PhoneticEngine.cpp src\core\SpecialCharPicker.cpp src\core\SuggestionPolicy.cpp src\core\SymbolTable.cpp src\core\TokenContext.cpp src\core\Tokenizer.cpp src\core\TokenTrie.cpp src\core\UnicodeComposer.cpp src\core\WordDictionary.cpp
 set NATIVE_SRCS=src\native\ConsoleHost.cpp src\native\Settings.cpp src\native\InputInjector.cpp src\native\KeyboardHook.cpp src\native\KeyboardState.cpp
 set UI_SRCS=src\ui\UiTheme.cpp src\ui\CandidateWindow.cpp src\ui\OnScreenKeyboard.cpp src\ui\TrayIcon.cpp
 

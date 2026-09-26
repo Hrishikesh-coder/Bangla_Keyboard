@@ -281,6 +281,8 @@ int main(int argc, char* argv[]) {
         return result;
     }
 
+    KeyboardHook::setTimingEnabled(wantsVerbose);
+
     // Register console Ctrl+C handler for graceful hook cleanup
     SetConsoleCtrlHandler(ConsoleCtrlHandler, TRUE);
 

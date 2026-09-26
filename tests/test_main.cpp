@@ -6,6 +6,7 @@
 #include "core/UnicodeComposer.h"
 #include "core/SpecialCharPicker.h"
 #include "core/WordDictionary.h"
+#include "core/BanglaText.h"
 #include "core/SuggestionPolicy.h"
 #include "core/PhoneticEngine.h"
 #include "core/TokenTrie.h"
@@ -15,6 +16,7 @@
 #include "core/InputBuffer.h"
 #include "core/SpecialCharPicker.h"
 #include "core/WordDictionary.h"
+#include "core/BanglaText.h"
 #include "core/SuggestionPolicy.h"
 
 #include <fstream>
@@ -1216,6 +1218,73 @@ static bool test_engine_and_dictionary_agree_on_normalisation() {
     return true;
 }
 
+
+static bool test_normalisation_unifies_nukta_forms() {
+    // ড় ঢ় য় each have two encodings that render identically and compare unequal. They are
+    // on the Unicode Composition Exclusion list, so the decomposed form is canonical and
+    // NFC deliberately does not recompose them.
+    TEST_ASSERT_EQ(BanglaText::normalize(cp({0x09DF})), cp({0x09AF, 0x09BC}));
+    TEST_ASSERT_EQ(BanglaText::normalize(cp({0x09DC})), cp({0x09A1, 0x09BC}));
+    TEST_ASSERT_EQ(BanglaText::normalize(cp({0x09DD})), cp({0x09A2, 0x09BC}));
+
+    // Already-decomposed text is left exactly as it is.
+    const std::string decomposed = cp({0x09AF, 0x09BC});
+    TEST_ASSERT_EQ(BanglaText::normalize(decomposed), decomposed);
+    TEST_ASSERT(!BanglaText::needsNormalization(decomposed));
+    TEST_ASSERT(BanglaText::needsNormalization(cp({0x09DF})));
+
+    // Everything else passes through untouched, including ASCII and other Bengali.
+    TEST_ASSERT_EQ(BanglaText::normalize("hello"), std::string("hello"));
+    TEST_ASSERT_EQ(BanglaText::normalize("বাংলা"), std::string("বাংলা"));
+    TEST_ASSERT_EQ(BanglaText::normalize(""), std::string(""));
+
+    // Mixed, which is exactly what a real corpus looks like.
+    TEST_ASSERT_EQ(BanglaText::normalize(cp({0x09B9, 0x09DF})), cp({0x09B9, 0x09AF, 0x09BC}));
+
+    return true;
+}
+
+static bool test_dictionary_matches_either_encoding() {
+    // The practical payoff: a corpus entry stored in one form is found by a query in the
+    // other. Without this, ~2300 of the top 20k OpenSubtitles Bengali words would be
+    // silently unreachable, with no error anywhere.
+    WordDictionary dict;
+    dict.add(cp({0x09B9, 0x09DF}), 500);             // হয় stored precomposed
+
+    TEST_ASSERT(dict.contains(cp({0x09B9, 0x09AF, 0x09BC})));  // found decomposed
+    TEST_ASSERT(dict.contains(cp({0x09B9, 0x09DF})));          // and precomposed
+
+    // Prediction works across the boundary too.
+    TEST_ASSERT(!dict.predict(cp({0x09B9, 0x09AF, 0x09BC}), 3).empty());
+
+    // And the stored form is the canonical one, whichever way it went in.
+    auto hits = dict.predict(cp({0x09B9}), 3);
+    TEST_ASSERT(!hits.empty());
+    TEST_ASSERT_EQ(hits[0].word, cp({0x09B9, 0x09AF, 0x09BC}));
+
+    return true;
+}
+
+static bool test_layout_and_engine_produce_identical_bytes() {
+    // The invariant that closes the bug class: the same word typed phonetically and typed
+    // on the fixed layout must be the same string, not merely look the same.
+    PhoneticEngine engine;
+    TEST_ASSERT(loadProductionConfig(engine));
+    FixedLayoutEngine layout;
+    TEST_ASSERT(layout.loadFromFile(findConfig("layout_probhat.json")));
+
+    // য়: phonetic "Y" and layout key 'z'.
+    TEST_ASSERT_EQ(engine.transliterate("Y"), layout.mapKey('z'));
+
+    // ড়: phonetic "R" and layout key 'R'.
+    TEST_ASSERT_EQ(engine.transliterate("R"), layout.mapKey('R'));
+
+    // ঢ়: phonetic "Rh" and layout key 'X'.
+    TEST_ASSERT_EQ(engine.transliterate("Rh"), layout.mapKey('X'));
+
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Fixed layout engine
 // ---------------------------------------------------------------------------
@@ -1278,7 +1347,10 @@ static bool test_shipped_layout_matches_probhat() {
     // Spot-checks against the canonical X11 ben_probhat definition. These are exactly the
     // keys an earlier draft of this file got wrong, so they are the ones worth pinning.
     TEST_ASSERT_EQ(layout.mapKey('/'), cp({0x09CD}));  // hasant, NOT on 'z'
-    TEST_ASSERT_EQ(layout.mapKey('z'), cp({0x09DF}));  // য়
+    // The Probhat chart specifies precomposed য় (U+09DF), but the engine normalises to the
+    // canonical decomposition on load -- U+09DF is on the Unicode Composition Exclusion
+    // list, so decomposed is the standard form and it is what every other component uses.
+    TEST_ASSERT_EQ(layout.mapKey('z'), cp({0x09AF, 0x09BC}));  // য়
     TEST_ASSERT_EQ(layout.mapKey('x'), cp({0x09B6}));  // শ
     TEST_ASSERT_EQ(layout.mapKey('Z'), cp({0x09AF}));  // য
     TEST_ASSERT_EQ(layout.mapKey('S'), cp({0x09B7}));  // ষ
@@ -1289,9 +1361,10 @@ static bool test_shipped_layout_matches_probhat() {
     TEST_ASSERT_EQ(layout.mapKey('&'), cp({0x099E}));  // ঞ
     TEST_ASSERT_EQ(layout.mapKey('*'), cp({0x09CE}));  // ৎ
 
-    // Probhat specifies the precomposed codepoints, not consonant + nukta.
-    TEST_ASSERT_EQ(layout.mapKey('R'), cp({0x09DC}));  // ড়
-    TEST_ASSERT_EQ(layout.mapKey('X'), cp({0x09DD}));  // ঢ়
+    // Probhat specifies the precomposed codepoints; normalisation decomposes them so that
+    // a word typed on the layout is byte-identical to the same word typed phonetically.
+    TEST_ASSERT_EQ(layout.mapKey('R'), cp({0x09A1, 0x09BC}));  // ড়
+    TEST_ASSERT_EQ(layout.mapKey('X'), cp({0x09A2, 0x09BC}));  // ঢ়
 
     // AltGr level.
     TEST_ASSERT_EQ(layout.mapKey('.', FixedLayoutEngine::Level::AltGr), cp({0x09BC})); // ়
@@ -1319,7 +1392,7 @@ static bool test_shipped_layout_matches_probhat() {
         cp({0x09AA}), cp({0x09AB}), cp({0x09AC}), cp({0x09AD}), cp({0x09AE}),
         cp({0x09AF}), cp({0x09B0}), cp({0x09B2}), cp({0x09B6}), cp({0x09B7}),
         cp({0x09B8}), cp({0x09B9}),
-        cp({0x09DC}), cp({0x09DD}), cp({0x09DF}), cp({0x09CE}),
+        cp({0x09A1, 0x09BC}), cp({0x09A2, 0x09BC}), cp({0x09AF, 0x09BC}), cp({0x09CE}),
         cp({0x0985}), cp({0x0986}), cp({0x0987}), cp({0x0988}), cp({0x0989}),
         cp({0x098A}), cp({0x098B}), cp({0x098F}), cp({0x0990}), cp({0x0993}),
         cp({0x0994}),
@@ -1498,6 +1571,9 @@ int main() {
     RUN_TEST(test_special_picker_survives_modifier_release);
     RUN_TEST(test_exception_override_reaches_live_preview);
     RUN_TEST(test_exception_dictionary_case_collision);
+    RUN_TEST(test_normalisation_unifies_nukta_forms);
+    RUN_TEST(test_dictionary_matches_either_encoding);
+    RUN_TEST(test_layout_and_engine_produce_identical_bytes);
     RUN_TEST(test_nukta_does_not_break_following_matra);
     RUN_TEST(test_engine_and_dictionary_agree_on_normalisation);
     RUN_TEST(test_fixed_layout_engine);

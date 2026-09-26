@@ -101,6 +101,21 @@ std::string KeyboardHook::s_committedText;
 size_t KeyboardHook::s_committedUnits = 0;
 char KeyboardHook::s_committedDelimiter = 0;
 
+namespace {
+bool g_timingEnabled = false;
+LARGE_INTEGER g_frequency = {};
+double g_worstMs = 0.0;
+unsigned long long g_samples = 0;
+double g_totalMs = 0.0;
+} // namespace
+
+void KeyboardHook::setTimingEnabled(bool enabled) {
+    g_timingEnabled = enabled;
+    if (enabled && g_frequency.QuadPart == 0) {
+        QueryPerformanceFrequency(&g_frequency);
+    }
+}
+
 KeyboardHook::~KeyboardHook() {
     uninstall();
 }
@@ -639,6 +654,11 @@ LRESULT CALLBACK KeyboardHook::hookCallback(int nCode, WPARAM wParam, LPARAM lPa
             s_committedText.clear();
             s_committedUnits = 0;
 
+            LARGE_INTEGER start = {};
+            if (g_timingEnabled) {
+                QueryPerformanceCounter(&start);
+            }
+
             s_buffer.append(c);
             if (s_engine) {
                 s_engine->updateActiveBuffer(s_buffer.content());
@@ -646,6 +666,19 @@ LRESULT CALLBACK KeyboardHook::hookCallback(int nCode, WPARAM wParam, LPARAM lPa
                           << s_engine->getActiveComposedString() << std::endl;
                 refreshPreview();
                 refreshUi();
+            }
+
+            if (g_timingEnabled && g_frequency.QuadPart != 0) {
+                LARGE_INTEGER end;
+                QueryPerformanceCounter(&end);
+                const double ms = 1000.0 * static_cast<double>(end.QuadPart - start.QuadPart)
+                                  / static_cast<double>(g_frequency.QuadPart);
+                ++g_samples;
+                g_totalMs += ms;
+                g_worstMs = (ms > g_worstMs) ? ms : g_worstMs;
+                std::cout << "[TIMING] " << ms << " ms  (worst " << g_worstMs
+                          << ", mean " << (g_totalMs / static_cast<double>(g_samples))
+                          << ", budget 300)" << std::endl;
             }
         }
         return 1; // Consume both keydown and keyup for captured letters

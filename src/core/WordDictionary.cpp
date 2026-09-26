@@ -1,4 +1,5 @@
 #include "core/WordDictionary.h"
+#include "core/BanglaText.h"
 
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -120,8 +121,12 @@ void WordDictionary::add(const std::string& word, uint32_t frequency) {
     if (word.empty()) {
         return;
     }
+    // Normalise on the way in. A corpus word list is mixed: the OpenSubtitles Bengali
+    // list has ~2300 precomposed nukta letters in its top 20k entries alongside decomposed
+    // ones, and storing both forms would mean the engine matches some and not others.
+    const std::string canonical = BanglaText::normalize(word);
     Node* node = &m_root;
-    for (char32_t cp : toCodepoints(word)) {
+    for (char32_t cp : toCodepoints(canonical)) {
         auto& child = node->children[cp];
         if (!child) {
             child = std::make_unique<Node>();
@@ -157,7 +162,7 @@ const WordDictionary::Node* WordDictionary::walk(const std::vector<char32_t>& co
 }
 
 bool WordDictionary::contains(const std::string& word) const {
-    const Node* node = walk(toCodepoints(word));
+    const Node* node = walk(toCodepoints(BanglaText::normalize(word)));
     return node && node->frequency > 0;
 }
 
@@ -186,6 +191,24 @@ void WordDictionary::collect(const Node* node,
     }
 }
 
+std::vector<WordSuggestion> WordDictionary::topWords(size_t limit) const {
+    std::vector<WordSuggestion> all;
+    std::vector<char32_t> prefix;
+    collect(&m_root, prefix, all);
+
+    std::sort(all.begin(), all.end(), [](const WordSuggestion& a, const WordSuggestion& b) {
+        if (a.frequency != b.frequency) {
+            return a.frequency > b.frequency;
+        }
+        return a.word < b.word;
+    });
+
+    if (limit > 0 && all.size() > limit) {
+        all.resize(limit);
+    }
+    return all;
+}
+
 std::vector<WordSuggestion> WordDictionary::predict(const std::string& prefix,
                                                     size_t limit) const {
     std::vector<WordSuggestion> out;
@@ -193,7 +216,7 @@ std::vector<WordSuggestion> WordDictionary::predict(const std::string& prefix,
         return out;
     }
 
-    std::vector<char32_t> codepoints = toCodepoints(prefix);
+    std::vector<char32_t> codepoints = toCodepoints(BanglaText::normalize(prefix));
     const Node* start = walk(codepoints);
     if (!start) {
         return out;
@@ -270,7 +293,7 @@ std::vector<WordSuggestion> WordDictionary::correct(const std::string& word,
         return out;
     }
 
-    const std::vector<char32_t> target = toCodepoints(word);
+    const std::vector<char32_t> target = toCodepoints(BanglaText::normalize(word));
 
     std::vector<int> firstRow(target.size() + 1);
     for (size_t i = 0; i < firstRow.size(); ++i) {
