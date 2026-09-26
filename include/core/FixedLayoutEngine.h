@@ -20,6 +20,16 @@
  */
 class FixedLayoutEngine {
 public:
+    /**
+     * @brief Which shift level a keystroke selects.
+     *
+     * Real fixed layouts are three-deep. Probhat puts the letters and matras on the base
+     * and shift levels but keeps the nukta, the rupee sign, ৄ, ঌ, ৡ, ঽ, ৗ and the
+     * currency-fraction signs on AltGr. A two-level implementation simply cannot type
+     * those characters, which is why the earlier draft had to invent places for them.
+     */
+    enum class Level { Base, Shift, AltGr };
+
     FixedLayoutEngine() = default;
 
     /// Loads a layout from a JSON file. Returns false if missing or malformed.
@@ -31,25 +41,37 @@ public:
     /// Human-readable layout name from the JSON "name" field.
     const std::string& layoutName() const { return m_layoutName; }
 
-    /// True when the typed character has a mapping in this layout.
-    bool isMapped(char key) const;
+    /// True when the typed character has a mapping at the given level.
+    bool isMapped(char key, Level level = Level::Base) const;
 
     /**
      * @brief Maps one typed character to its Bengali output.
+     *
+     * The caller passes the character the keyboard would normally produce, so Shift is
+     * already reflected in `key` ('K' rather than 'k'). `level` exists for AltGr, which
+     * produces no distinct character of its own.
+     *
      * @return The mapped string, or a one-character string containing `key` when unmapped.
      */
-    std::string mapKey(char key) const;
+    std::string mapKey(char key, Level level = Level::Base) const;
 
-    /// Maps every character of a string. Unmapped characters pass through unchanged.
+    /// Maps every character of a string at the base/shift levels.
     std::string mapText(const std::string& text) const;
 
     void clear();
-    size_t size() const { return m_map.size(); }
 
-    /// The whole key map, for the on-screen keyboard and layout editor.
-    const std::unordered_map<char, std::string>& keyMap() const { return m_map; }
+    /// Total mappings across all three levels.
+    size_t size() const;
+
+    /// The map for one level, for the on-screen keyboard and the layout editor.
+    const std::unordered_map<char, std::string>& keyMap(Level level = Level::Base) const;
 
 private:
+    /// Selects the map for a level. Shift and base share one map, keyed by the shifted
+    /// character, because the keyboard already tells us which one was typed.
+    const std::unordered_map<char, std::string>& mapFor(Level level) const;
+
     std::string m_layoutName;
-    std::unordered_map<char, std::string> m_map;
+    std::unordered_map<char, std::string> m_base;   ///< base + shift, keyed by typed character
+    std::unordered_map<char, std::string> m_altgr;  ///< AltGr level
 };

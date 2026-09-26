@@ -406,14 +406,28 @@ LRESULT CALLBACK KeyboardHook::hookCallback(int nCode, WPARAM wParam, LPARAM lPa
     // Stateless: one key, one glyph, injected immediately. No buffer, no candidates,
     // no preview bookkeeping - which is exactly why fixed layouts feel predictable.
     if (state.getMode() == InputMode::BENGALI_FIXED) {
-        if (isCtrl || isAlt || !s_layout) {
+        if (!s_layout) {
             return CallNextHookEx(s_hHook, nCode, wParam, lParam);
         }
 
+        // AltGr is the third shift level of a real fixed layout - Probhat keeps the nukta,
+        // ৗ, ঽ and the currency signs there. Windows has no AltGr virtual key: the
+        // keyboard driver synthesises left-Ctrl plus right-Alt, so AltGr is detected as
+        // "right Alt is down", and a genuine Ctrl+Alt chord is indistinguishable from it.
+        // That ambiguity is the platform's, not ours.
+        const bool isAltGr = (GetAsyncKeyState(VK_RMENU) & 0x8000) != 0;
+
+        if ((isCtrl || isAlt) && !isAltGr) {
+            return CallNextHookEx(s_hHook, nCode, wParam, lParam);
+        }
+
+        const auto level = isAltGr ? FixedLayoutEngine::Level::AltGr
+                                   : FixedLayoutEngine::Level::Base;
+
         char key = 0;
-        if (charFromKey(kbd, key) && s_layout->isMapped(key)) {
+        if (charFromKey(kbd, key) && s_layout->isMapped(key, level)) {
             if (isKeyDown) {
-                InputInjector::injectText(s_layout->mapKey(key));
+                InputInjector::injectText(s_layout->mapKey(key, level));
             }
             return 1; // Consume both down and up for mapped keys
         }

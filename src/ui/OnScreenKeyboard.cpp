@@ -25,6 +25,7 @@ const RowSpec kRows[] = {
 
 /// Sentinel for the Shift key cap, which is not a layout key.
 constexpr char kShiftKey = '\x01';
+constexpr char kAltGrKey = '\x02';
 constexpr char kSpaceKey = ' ';
 
 } // namespace
@@ -127,8 +128,16 @@ void OnScreenKeyboard::buildKeys() {
     Key space;
     space.base = kSpaceKey;
     space.shifted = kSpaceKey;
-    space.widthUnits = 620;
+    space.widthUnits = 440;
     bottom.push_back(space);
+
+    // AltGr is the layout's third level, where Probhat keeps the nukta, ৗ, ঽ and the
+    // currency signs. Without a cap for it those characters are untypeable from this board.
+    Key altgr;
+    altgr.base = kAltGrKey;
+    altgr.shifted = kAltGrKey;
+    altgr.widthUnits = 180;
+    bottom.push_back(altgr);
 
     m_rows.push_back(std::move(bottom));
 }
@@ -159,18 +168,23 @@ void OnScreenKeyboard::layoutKeys() {
 }
 
 std::string OnScreenKeyboard::glyphFor(const Key& key) const {
-    if (!m_layout || key.base == kShiftKey) {
+    if (!m_layout || key.base == kShiftKey || key.base == kAltGrKey) {
         return std::string();
     }
     if (key.base == kSpaceKey) {
         return std::string(" ");
     }
-    const char physical = m_shift ? key.shifted : key.base;
-    return m_layout->isMapped(physical) ? m_layout->mapKey(physical) : std::string();
+    // AltGr is keyed off the unshifted character: it is a separate level on the same
+    // physical key, not a variant of the shifted one.
+    const auto level = m_altgr ? FixedLayoutEngine::Level::AltGr
+                               : FixedLayoutEngine::Level::Base;
+    const char physical = (m_shift && !m_altgr) ? key.shifted : key.base;
+    return m_layout->isMapped(physical, level) ? m_layout->mapKey(physical, level)
+                                               : std::string();
 }
 
 std::wstring OnScreenKeyboard::hintFor(const Key& key) const {
-    const char physical = m_shift ? key.shifted : key.base;
+    const char physical = (m_shift && !m_altgr) ? key.shifted : key.base;
     wchar_t buffer[2] = { static_cast<wchar_t>(physical), 0 };
     return std::wstring(buffer);
 }
@@ -267,7 +281,8 @@ void OnScreenKeyboard::onPaint() {
             const bool hovered = (static_cast<int>(r) == m_hoverRow &&
                                   static_cast<int>(c) == m_hoverCol);
             const bool isShiftKey = (key.base == kShiftKey);
-            const bool latched = isShiftKey && m_shift;
+            const bool isAltGrKey = (key.base == kAltGrKey);
+            const bool latched = (isShiftKey && m_shift) || (isAltGrKey && m_altgr);
 
             COLORREF fill = latched  ? UiTheme::ACCENT_SOFT
                           : hovered  ? UiTheme::BORDER_SUBTLE
@@ -275,9 +290,9 @@ void OnScreenKeyboard::onPaint() {
             COLORREF edge = latched ? UiTheme::ACCENT_DIM : UiTheme::BORDER_SUBTLE;
             UiTheme::fillRoundRect(hdc, key.rect, keyR, fill, edge);
 
-            if (isShiftKey) {
+            if (isShiftKey || isAltGrKey) {
                 SelectObject(hdc, m_fontLabel);
-                UiTheme::drawText(hdc, L"Shift", key.rect,
+                UiTheme::drawText(hdc, isShiftKey ? L"Shift" : L"AltGr", key.rect,
                                   latched ? UiTheme::ACCENT : UiTheme::TEXT_MUTED,
                                   DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
                 continue;
@@ -396,6 +411,13 @@ LRESULT CALLBACK OnScreenKeyboard::wndProc(HWND hwnd, UINT msg, WPARAM wParam, L
 
             if (key.base == kShiftKey) {
                 self->m_shift = !self->m_shift;
+                self->m_altgr = false; // the two levels are mutually exclusive
+                InvalidateRect(hwnd, nullptr, FALSE);
+                return 0;
+            }
+            if (key.base == kAltGrKey) {
+                self->m_altgr = !self->m_altgr;
+                self->m_shift = false;
                 InvalidateRect(hwnd, nullptr, FALSE);
                 return 0;
             }
@@ -403,10 +425,11 @@ LRESULT CALLBACK OnScreenKeyboard::wndProc(HWND hwnd, UINT msg, WPARAM wParam, L
             std::string glyph = self->glyphFor(key);
             if (!glyph.empty() && self->m_onKey) {
                 self->m_onKey(glyph);
-                // Shift is one-shot, like a real keyboard: it releases after the key it
-                // modified, so the user is not left silently latched.
-                if (self->m_shift) {
+                // Both modifiers are one-shot, like a real keyboard: they release after
+                // the key they modified, so the user is not left silently latched.
+                if (self->m_shift || self->m_altgr) {
                     self->m_shift = false;
+                    self->m_altgr = false;
                     InvalidateRect(hwnd, nullptr, FALSE);
                 }
             }
