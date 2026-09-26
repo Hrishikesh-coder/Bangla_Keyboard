@@ -1,4 +1,5 @@
 #include "core/CandidateResolver.h"
+#include "core/Morphology.h"
 #include "core/WordDictionary.h"
 #include "core/UnicodeComposer.h"
 #include <algorithm>
@@ -94,6 +95,15 @@ void DictionaryCandidateResolver::evaluateWord(const std::vector<Candidate>& all
     uint32_t bestPrefixFreq = 0;
     std::vector<size_t> bestPrefixSelection(allCandidates.size(), 0);
 
+    // Tier between exact and prefix: an inflected form whose stem is a known word.
+    uint32_t bestStemFreq = 0;
+    std::vector<size_t> bestStemSelection(allCandidates.size(), 0);
+
+    // Last tier: how plausible the spelling is as Bengali, for words nothing else knows.
+    double bestNgramScore = 0.0;
+    bool haveNgramScore = false;
+    std::vector<size_t> bestNgramSelection(allCandidates.size(), 0);
+
     UnicodeComposer composer;
     std::vector<Candidate> testCandidates = allCandidates;
 
@@ -121,7 +131,36 @@ void DictionaryCandidateResolver::evaluateWord(const std::vector<Candidate>& all
             }
         }
 
-        // 2. Prefix match check (if no exact match yet)
+        // 2. Morphological match: strip a suffix and look the stem up. বাড়িতে is not in
+        //    most word lists; বাড়ি is in all of them, and the ambiguous letters live in
+        //    the stem, not the ending.
+        if (bestExactFreq == 0 && m_morphology) {
+            for (const auto& stem : Morphology::candidateStems(composed)) {
+                uint32_t stemFreq = m_dictionary->getFrequency(stem);
+                if (stemFreq > bestStemFreq) {
+                    bestStemFreq = stemFreq;
+                    for (size_t i = 0; i < allCandidates.size(); ++i) {
+                        bestStemSelection[i] = testCandidates[i].selectedIndex;
+                    }
+                    break; // longest suffix stripped first, so the first hit is the best
+                }
+            }
+        }
+
+        // 3. Character-level plausibility, scored for every combination so that a ranking
+        //    exists even when no lookup of any kind succeeds.
+        if (m_ngram && m_ngram->trained()) {
+            const double score = m_ngram->logProbability(composed);
+            if (!haveNgramScore || score > bestNgramScore) {
+                haveNgramScore = true;
+                bestNgramScore = score;
+                for (size_t i = 0; i < allCandidates.size(); ++i) {
+                    bestNgramSelection[i] = testCandidates[i].selectedIndex;
+                }
+            }
+        }
+
+        // 4. Prefix match check (if no exact match yet)
         if (bestExactFreq == 0) {
             auto predictions = m_dictionary->predict(composed, 1);
             if (!predictions.empty() && predictions[0].frequency > bestPrefixFreq) {
@@ -152,9 +191,23 @@ void DictionaryCandidateResolver::evaluateWord(const std::vector<Candidate>& all
     std::string defaultComposed = composer.compose(allCandidates);
     bool defaultIsPrefix = m_dictionary->hasPrefix(defaultComposed);
 
+    // Tiers in descending order of evidence. A whole word beats a stem; a stem beats a
+    // prefix; a prefix beats mere character plausibility. The n-gram tier only fires when
+    // every lookup has failed, which is exactly the case where the old resolver returned
+    // candidate zero and hoped.
     if (bestExactFreq > 0) {
         m_resolvedIndices = bestExactSelection;
+    } else if (bestStemFreq > 0) {
+        m_resolvedIndices = bestStemSelection;
     } else if (!defaultIsPrefix && bestPrefixFreq > 0) {
         m_resolvedIndices = bestPrefixSelection;
+    } else if (haveNgramScore) {
+        // Only override the default ordering when the model is clearly more confident.
+        // Without this the model was a net loss: it replaced a hand-tuned prior with a
+        // marginally-different guess, and lost more than it won.
+        const double defaultScore = m_ngram->logProbability(defaultComposed);
+        if (bestNgramScore > defaultScore + m_ngramMargin) {
+            m_resolvedIndices = bestNgramSelection;
+        }
     }
 }

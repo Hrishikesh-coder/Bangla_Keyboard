@@ -100,6 +100,8 @@ std::string KeyboardHook::s_previewText;
 std::string KeyboardHook::s_committedText;
 size_t KeyboardHook::s_committedUnits = 0;
 char KeyboardHook::s_committedDelimiter = 0;
+UserDictionary* KeyboardHook::s_userWords = nullptr;
+bool KeyboardHook::s_learnOnCommit = false;
 
 namespace {
 bool g_timingEnabled = false;
@@ -273,6 +275,13 @@ void KeyboardHook::applyCorrection(const std::string& word) {
         return;
     }
 
+    // The user just stated what they meant. That is a free, unambiguous label, and the
+    // words it produces -- names, jargon, loanwords -- are precisely the ones no shipped
+    // corpus contains.
+    if (s_userWords) {
+        s_userWords->learn(word);
+    }
+
     // The document already holds the word plus the delimiter that ended it, so both come
     // out and both go back. Retyping the delimiter keeps the caret and the spacing exactly
     // where the user left them.
@@ -371,6 +380,12 @@ void KeyboardHook::commitBuffer() {
     }
 
     std::cout << "[COMMIT] \"" << roman << "\" ==> \"" << finalText << "\"" << std::endl;
+
+    // If the user overrode the engine while composing this word, keep the result.
+    if (s_learnOnCommit && s_userWords && !finalText.empty()) {
+        s_userWords->learn(finalText);
+        s_learnOnCommit = false;
+    }
 
     // Remember what landed, so a correction can undo it.
     s_committedText = finalText;
@@ -563,6 +578,11 @@ LRESULT CALLBACK KeyboardHook::hookCallback(int nCode, WPARAM wParam, LPARAM lPa
     // Shortcut: Candidate cycling: Ctrl + Shift + Space
     if (isKeyDown && isCtrl && isShift && kbd->vkCode == KeyboardState::CYCLE_VK) {
         if (s_engine && !s_buffer.empty()) {
+            if (s_userWords) {
+                // Cycling is also a correction: the engine offered something and the user
+                // rejected it. Learn the word they settle on, once it is committed.
+                s_learnOnCommit = true;
+            }
             if (s_engine->cycleActiveCandidate()) {
                 std::cout << "[CANDIDATE CYCLE] " << s_buffer.content()
                           << " -> " << s_engine->getActiveComposedString() << std::endl;

@@ -30,7 +30,48 @@ letter, i.e. where the resolver has real work to do:
 | `DictionaryCandidateResolver`, word present in dictionary | 1592 / 1922 | **82.8%** |
 | `DictionaryCandidateResolver`, **word held out** | 961 / 1922 | **50.0%** |
 
-## Reading the three numbers
+## Closing the generalisation gap
+
+Two tiers were added below whole-word lookup, both measured on the same held-out split.
+The margin for the character model was tuned on words ranked 6000–8000 and reported on
+words ranked 2000–4000, so the number below is not fitted to itself.
+
+| Resolver on held-out words | Correct | Accuracy |
+|---|---|---|
+| whole-word lookup only | 961 / 1922 | 50.0% |
+| + morphological stem lookup | 1019 / 1922 | **53.0%** |
+| + character trigram model (margin 4) | 1039 / 1922 | **54.1%** |
+
+**Morphological stripping** is the larger and simpler win. Bangla is agglutinative: বাড়িতে
+is rarely in a word list, বাড়ি always is, and the ambiguous letters live in the stem rather
+than the ending. About 80 lines of suffix stripping buys three points.
+
+**The character model needed a confidence margin, and the negative result is the
+interesting part.** Applied unconditionally it made accuracy *worse* — 49.6%, below the
+50.0% baseline. Candidate order in `phonetic_rules.json` is itself a linguistic prior (শ
+before ষ before স is a claim about which is likelier), and an unconstrained trigram model
+was overriding that prior with something marginally different and frequently worse. Only
+allowing it to override when it is substantially more confident turns a 0.4-point loss into
+a 1.1-point gain:
+
+| Margin | Held-out accuracy |
+|---|---|
+| 0 (always override) | 49.6% |
+| 1 | 52.1% |
+| 2 | 52.9% |
+| **4** | **54.1%** |
+| 8 | 53.9% |
+| 16 | 53.1% |
+
+The validation slice independently peaks at 4, so the value is not an artefact of the test
+set.
+
+The honest summary: statistical fallbacks recover **4.1 points** of the 32.8-point gap
+between knowing a word and not knowing it. Useful, and far short of a substitute for
+coverage. Anyone hoping a language model would replace the dictionary should read that
+table first.
+
+## Reading the numbers
 
 **39.1% → 82.8%** is what the resolver achieves when the word is in its dictionary. It more
 than doubles accuracy, which confirms the mechanism works.

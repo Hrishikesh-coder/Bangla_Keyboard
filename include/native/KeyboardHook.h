@@ -7,6 +7,7 @@
 #include "native/KeyboardState.h"
 #include "core/SuggestionPolicy.h"
 #include "core/WordDictionary.h"
+#include "core/UserDictionary.h"
 #include "ui/CandidateWindow.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -86,6 +87,9 @@ public:
      */
     static void setTimingEnabled(bool enabled);
 
+    /// Supplies the store that records words the user corrects the engine into.
+    static void setUserDictionary(UserDictionary* dictionary) { s_userWords = dictionary; }
+
     /// Uninstalls the active hook.
     void uninstall();
 
@@ -131,6 +135,10 @@ private:
     static FixedLayoutEngine* s_layout;
     static CandidateWindow* s_candidateWindow;
     static WordDictionary* s_words;
+
+    /// Words learned from the user's own corrections. May be null.
+    static UserDictionary* s_userWords;
+    static bool s_learnOnCommit;
     static InputBuffer s_buffer;
     static SpecialCharPicker s_specialPicker;
     static DWORD s_threadId;

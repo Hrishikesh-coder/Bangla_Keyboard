@@ -1,0 +1,55 @@
+name: CI
+
+# Exists because main has already been merged in a non-compiling state once: PR #3 landed
+# with conflict markers still in tests/test_main.cpp. The application still built, so
+# nothing looked wrong locally, and the entire test suite was dead until someone happened
+# to run it. A build that only runs on the machine of whoever last touched it is not a
+# build anyone can rely on.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  engine:
+    name: Engine and tests (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Catch the exact failure that motivated this file, with a clear message, before the
+      # compiler reports it as a syntax error 200 lines away from the cause.
+      - name: Reject unresolved merge conflicts
+        run: |
+          if grep -rn --include='*.cpp' --include='*.h' --include='*.json' --include='*.md' \
+             -E '^(<{7}|={7}|>{7})( |$)' . ; then
+            echo "::error::Unresolved merge conflict markers found"
+            exit 1
+          fi
+
+      - name: Build engine and tests
+        run: make test
+
+  windows:
+    name: Full application (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build with MinGW
+        shell: cmd
+        run: build.bat
+
+  benchmark:
+    name: Resolver accuracy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Not a pass/fail gate: accuracy is a measurement, and turning it into a threshold
+      # invites people to tune the threshold. Printed in the log so a regression is visible
+      # in the diff between two runs.
+      - name: Measure
+        run: make bench

@@ -9,6 +9,9 @@ CXX      = g++
 CXXFLAGS = -std=c++17 -Wall -Wextra -O2 -Iinclude -Ithird_party
 
 CORE_SRCS = src/core/BanglaText.cpp \
+            src/core/Morphology.cpp \
+            src/core/NgramModel.cpp \
+            src/core/UserDictionary.cpp \
             src/core/CandidateResolver.cpp \
             src/core/ContextAnalyzer.cpp \
             src/core/ExceptionDictionary.cpp \

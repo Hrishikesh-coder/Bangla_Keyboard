@@ -1,6 +1,9 @@
 #include "core/PhoneticEngine.h"
 #include "core/FixedLayoutEngine.h"
 #include "core/WordDictionary.h"
+#include "core/UserDictionary.h"
+#include "core/NgramModel.h"
+#include "core/CandidateResolver.h"
 #include "core/SpecialCharPicker.h"
 #include "native/KeyboardHook.h"
 #include "native/KeyboardState.h"
@@ -21,6 +24,8 @@
 static KeyboardHook g_hook;
 static ConsoleHost g_console;
 static Settings g_settings;
+static UserDictionary g_userWords;
+static std::string g_userWordsPath;
 static std::string g_settingsPath;
 static TrayIcon g_tray;
 static CandidateWindow g_candidateWindow;
@@ -60,6 +65,7 @@ static void persistSettings() {
     g_settings.onScreenKeyboardVisible = g_onScreenKeyboard.isVisible();
     g_onScreenKeyboard.position(g_settings.onScreenKeyboardX, g_settings.onScreenKeyboardY);
     g_settings.save(g_settingsPath);
+    g_userWords.save(g_userWordsPath);
 }
 
 /// Mirrors the current state onto the tray icon.
@@ -229,6 +235,7 @@ int main(int argc, char* argv[]) {
     PhoneticEngine engine;
     FixedLayoutEngine layout;
     WordDictionary words;
+    NgramModel ngram;
 
     if (!engine.loadRules(findConfig("phonetic_rules.json"))) {
         std::cerr << "[WARNING] Could not load config/phonetic_rules.json!" << std::endl;
@@ -242,6 +249,22 @@ int main(int argc, char* argv[]) {
     } else {
         engine.setCandidateResolver(std::make_unique<DictionaryCandidateResolver>(&words));
     }
+    // Words the user has taught us, merged into the same dictionary the resolver reads,
+    // so a personal spelling simply outranks the corpus.
+    g_userWordsPath = UserDictionary::defaultPath();
+    g_userWords.load(g_userWordsPath);
+    g_userWords.mergeInto(words);
+    KeyboardHook::setUserDictionary(&g_userWords);
+
+    // Statistical fallback for words no dictionary contains. Trained after the user's own
+    // words are merged in, so their spellings shape the model too.
+    ngram.train(words);
+    {
+        auto resolver = std::make_unique<DictionaryCandidateResolver>(&words);
+        resolver->setNgramModel(&ngram);
+        engine.setCandidateResolver(std::move(resolver));
+    }
+
     if (!layout.loadFromFile(findConfig("layout_probhat.json"))) {
         std::cout << "[INIT] No fixed layout loaded; fixed-layout mode will be unavailable." << std::endl;
     }
@@ -255,7 +278,9 @@ int main(int argc, char* argv[]) {
                   << engine.getSymbolTable().contextualRuleCount() << " context-sensitive), "
                   << engine.getExceptions().size() << " exception overrides, "
                   << layout.size() << " fixed-layout keys, "
-                  << words.size() << " dictionary words." << std::endl;
+                  << words.size() << " dictionary words ("
+                  << g_userWords.size() << " learned), "
+                  << ngram.contextCount() << " trigram contexts." << std::endl;
     }
 
     // Saved preferences first, then command-line flags, which are an explicit override for

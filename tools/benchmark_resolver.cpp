@@ -36,6 +36,7 @@
 #include "core/BanglaText.h"
 #include "core/CandidateResolver.h"
 #include "core/UnicodeComposer.h"
+#include "core/NgramModel.h"
 #include <cctype>
 
 #include <algorithm>
@@ -196,6 +197,16 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         sampleSize = static_cast<size_t>(std::stoul(argv[1]));
     }
+    double ngramMargin = 4.0;
+    if (argc > 2) {
+        ngramMargin = std::stod(argv[2]);
+    }
+    // Which slice of the frequency distribution to test on. The margin is tuned on one
+    // slice and reported on another, so the reported number is not fitted to itself.
+    size_t offset = 2000;
+    if (argc > 3) {
+        offset = static_cast<size_t>(std::stoul(argv[3]));
+    }
 
     PhoneticEngine reference;
     if (!reference.loadRules(findConfig("phonetic_rules.json"))) {
@@ -246,7 +257,6 @@ int main(int argc, char* argv[]) {
     // The sample is drawn from the middle of the frequency distribution rather than the
     // very top: the top few hundred words are pronouns and particles with little
     // ambiguity, and scoring on them would understate the problem.
-    const size_t offset = 2000;
     auto ranked = dictionary.topWords(offset + sampleSize);
     std::vector<std::string> sample;
     std::set<std::string> testSet;
@@ -278,13 +288,44 @@ int main(int argc, char* argv[]) {
     smart.loadExceptions(findConfig("exceptions.json"));
     smart.setCandidateResolver(std::make_unique<DictionaryCandidateResolver>(&dictionary));
 
+    // Held-out, whole-word lookup only: the baseline the statistical tiers have to beat.
     PhoneticEngine generalising;
     generalising.loadRules(findConfig("phonetic_rules.json"));
     generalising.loadExceptions(findConfig("exceptions.json"));
-    generalising.setCandidateResolver(std::make_unique<DictionaryCandidateResolver>(&heldOut));
+    {
+        auto resolver = std::make_unique<DictionaryCandidateResolver>(&heldOut);
+        resolver->setMorphologyEnabled(false);
+        generalising.setCandidateResolver(std::move(resolver));
+    }
+
+    // Held-out plus morphological stem lookup.
+    PhoneticEngine withMorphology;
+    withMorphology.loadRules(findConfig("phonetic_rules.json"));
+    withMorphology.loadExceptions(findConfig("exceptions.json"));
+    {
+        auto resolver = std::make_unique<DictionaryCandidateResolver>(&heldOut);
+        resolver->setMorphologyEnabled(true);
+        withMorphology.setCandidateResolver(std::move(resolver));
+    }
+
+    // Held-out plus morphology plus the character model. The n-gram model is trained on
+    // the held-out dictionary too, so it has never seen the test words either.
+    NgramModel ngram;
+    ngram.train(heldOut);
+
+    PhoneticEngine withNgram;
+    withNgram.loadRules(findConfig("phonetic_rules.json"));
+    withNgram.loadExceptions(findConfig("exceptions.json"));
+    {
+        auto resolver = std::make_unique<DictionaryCandidateResolver>(&heldOut);
+        resolver->setMorphologyEnabled(true);
+        resolver->setNgramModel(&ngram);
+        resolver->setNgramMargin(ngramMargin);
+        withNgram.setCandidateResolver(std::move(resolver));
+    }
 
     Score allDefault, allSmart, ambiguousDefault, ambiguousSmart;
-    Score ambiguousHeldOut;
+    Score ambiguousHeldOut, ambiguousMorph, ambiguousNgram;
     size_t unreachable = 0;
 
     for (const auto& word : sample) {
@@ -298,6 +339,8 @@ int main(int argc, char* argv[]) {
         const std::string byDefault = baseline.transliterate(roman);
         const std::string bySmart = smart.transliterate(roman);
         const std::string byHeldOut = generalising.transliterate(roman);
+        const std::string byMorph = withMorphology.transliterate(roman);
+        const std::string byNgram = withNgram.transliterate(roman);
 
         ++allDefault.total;
         ++allSmart.total;
@@ -311,6 +354,10 @@ int main(int argc, char* argv[]) {
             if (bySmart == word)   ++ambiguousSmart.correct;
             ++ambiguousHeldOut.total;
             if (byHeldOut == word) ++ambiguousHeldOut.correct;
+            ++ambiguousMorph.total;
+            if (byMorph == word)   ++ambiguousMorph.correct;
+            ++ambiguousNgram.total;
+            if (byNgram == word)   ++ambiguousNgram.correct;
         }
     }
 
@@ -318,7 +365,8 @@ int main(int argc, char* argv[]) {
     std::cout << "========================================================\n"
               << "  Candidate resolver accuracy\n"
               << "========================================================\n"
-              << "Sample              : " << sample.size() << " most frequent corpus words\n"
+              << "Sample              : " << sample.size() << " words, ranked " << offset
+              << "-" << (offset + sampleSize) << " by frequency\n"
               << "Unreachable         : " << unreachable
               << " (no Roman spelling; excluded from both scores)\n"
               << "Scored              : " << allDefault.total << "\n"
@@ -335,9 +383,17 @@ int main(int argc, char* argv[]) {
               << ambiguousDefault.total << "  " << ambiguousDefault.percent() << "%\n"
               << "  Dictionary (word in dict)   : " << ambiguousSmart.correct << "/"
               << ambiguousSmart.total << "  " << ambiguousSmart.percent() << "%\n"
-              << "  Dictionary (HELD OUT)       : " << ambiguousHeldOut.correct << "/"
-              << ambiguousHeldOut.total << "  " << ambiguousHeldOut.percent() << "%\n"
               << "--------------------------------------------------------\n"
+              << "HELD OUT -- test words removed from the resolver's dictionary\n"
+              << "  whole-word lookup only      : " << ambiguousHeldOut.correct << "/"
+              << ambiguousHeldOut.total << "  " << ambiguousHeldOut.percent() << "%\n"
+              << "  + morphological stems       : " << ambiguousMorph.correct << "/"
+              << ambiguousMorph.total << "  " << ambiguousMorph.percent() << "%\n"
+              << "  + character trigram (margin " << ngramMargin << ") : " << ambiguousNgram.correct << "/"
+              << ambiguousNgram.total << "  " << ambiguousNgram.percent() << "%\n"
+              << "--------------------------------------------------------\n"
+              << "  n-gram model trained on the held-out dictionary, so it has\n"
+              << "  never seen the test words either.\n"
               << "  \"held out\" removes the test words from the resolver's own dictionary,\n"
               << "  so it must spell words it has never seen. That is the honest number.\n"
               << "========================================================\n";

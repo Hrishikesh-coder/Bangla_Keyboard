@@ -7,6 +7,9 @@
 #include "core/SpecialCharPicker.h"
 #include "core/WordDictionary.h"
 #include "core/BanglaText.h"
+#include "core/NgramModel.h"
+#include "core/Morphology.h"
+#include "core/UserDictionary.h"
 #include "core/SuggestionPolicy.h"
 #include "core/PhoneticEngine.h"
 #include "core/TokenTrie.h"
@@ -17,6 +20,9 @@
 #include "core/SpecialCharPicker.h"
 #include "core/WordDictionary.h"
 #include "core/BanglaText.h"
+#include "core/NgramModel.h"
+#include "core/Morphology.h"
+#include "core/UserDictionary.h"
 #include "core/SuggestionPolicy.h"
 
 #include <fstream>
@@ -1285,6 +1291,126 @@ static bool test_layout_and_engine_produce_identical_bytes() {
     return true;
 }
 
+
+// ---------------------------------------------------------------------------
+// Morphology and the character model
+// ---------------------------------------------------------------------------
+
+static bool test_morphology_strips_suffixes() {
+    // বাড়িতে is rarely in a word list; বাড়ি always is, and the ambiguous letters live in
+    // the stem rather than the ending.
+    auto stems = Morphology::candidateStems("বাড়িতে");
+    TEST_ASSERT(!stems.empty());
+    bool foundStem = false;
+    for (const auto& stem : stems) {
+        if (stem == "বাড়ি") { foundStem = true; break; }
+    }
+    TEST_ASSERT(foundStem);
+
+    // Longest suffix first, so গুলো is preferred over ো-final splits.
+    stems = Morphology::candidateStems("ছেলেগুলো");
+    TEST_ASSERT(!stems.empty());
+    TEST_ASSERT_EQ(stems[0], std::string("ছেলে"));
+
+    // A stem must not be left ending in a hasant: that means the split cut a conjunct in
+    // half, which is never a real morpheme boundary.
+    for (const auto& stem : Morphology::candidateStems("বিদ্যুতে")) {
+        auto cps = WordDictionary::toCodepoints(stem);
+        TEST_ASSERT(cps.empty() || cps.back() != 0x09CD);
+    }
+
+    // Words too short to strip anything from yield nothing rather than an empty stem.
+    TEST_ASSERT(Morphology::candidateStems("এ").empty());
+    TEST_ASSERT(Morphology::candidateStems("").empty());
+
+    return true;
+}
+
+static bool test_ngram_model_scores_plausibility() {
+    WordDictionary dict;
+    TEST_ASSERT(dict.loadFromFile(findConfig("words_bangla.json")));
+
+    NgramModel model;
+    TEST_ASSERT(!model.trained());
+    model.train(dict);
+    TEST_ASSERT(model.trained());
+    TEST_ASSERT(model.contextCount() > 100);
+
+    // A real word must score better than the same letters in an implausible order.
+    const double real = model.logProbability("বাংলা");
+    const double scrambled = model.logProbability("লাংবা");
+    TEST_ASSERT(real > scrambled);
+
+    // A word it has never seen but which obeys Bengali orthography should still beat a
+    // sequence that does not -- that is the entire point of a character model.
+    const double plausible = model.logProbability("কাজের");
+    const double implausible = model.logProbability("ংঁঃংঁ");
+    TEST_ASSERT(plausible > implausible);
+
+    // An untrained model is silent rather than confidently wrong.
+    NgramModel empty;
+    TEST_ASSERT(!empty.trained());
+    TEST_ASSERT(empty.logProbability("বাংলা") < 0.0);
+
+    return true;
+}
+
+static bool test_resolver_tiers_are_ordered_by_evidence() {
+    // A whole-word match must outrank a merely plausible spelling. If the tiers were
+    // ordered the other way, adding the character model would make known words worse.
+    PhoneticEngine engine;
+    TEST_ASSERT(loadProductionConfig(engine));
+    WordDictionary dict;
+    TEST_ASSERT(dict.loadFromFile(findConfig("words_bangla.json")));
+
+    NgramModel model;
+    model.train(dict);
+
+    auto resolver = std::make_unique<DictionaryCandidateResolver>(&dict);
+    resolver->setNgramModel(&model);
+    engine.setCandidateResolver(std::move(resolver));
+
+    // These are in the dictionary, so the exact-match tier must win regardless of what
+    // the character model thinks.
+    TEST_ASSERT_EQ(engine.transliterate("manush"), std::string("মানুষ"));
+    TEST_ASSERT_EQ(engine.transliterate("bhasha"), std::string("ভাষা"));
+
+    return true;
+}
+
+
+static bool test_user_dictionary_learns_and_reinforces() {
+    UserDictionary learned;
+    TEST_ASSERT_EQ(learned.size(), 0);
+
+    learned.learn("রয়");
+    TEST_ASSERT(learned.contains("রয়"));
+    TEST_ASSERT_EQ(learned.size(), 1);
+
+    // Learning the same word again reinforces rather than duplicating.
+    learned.learn("রয়");
+    TEST_ASSERT_EQ(learned.size(), 1);
+
+    // Normalised on the way in, so a word learned in one encoding is found in the other.
+    UserDictionary normalised;
+    normalised.learn(cp({0x09B0, 0x09DF}));              // precomposed
+    TEST_ASSERT(normalised.contains(cp({0x09B0, 0x09AF, 0x09BC})));  // decomposed
+
+    // A learned word outranks the corpus, so a personal spelling is not overwritten.
+    WordDictionary corpus;
+    corpus.add("রায়", 3000);
+    learned.mergeInto(corpus);
+    auto hits = corpus.predict("র", 2);
+    TEST_ASSERT(!hits.empty());
+    TEST_ASSERT_EQ(hits[0].word, std::string("রয়"));
+
+    TEST_ASSERT(learned.forget("রয়"));
+    TEST_ASSERT(!learned.forget("রয়"));
+    TEST_ASSERT_EQ(learned.size(), 0);
+
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Fixed layout engine
 // ---------------------------------------------------------------------------
@@ -1571,6 +1697,10 @@ int main() {
     RUN_TEST(test_special_picker_survives_modifier_release);
     RUN_TEST(test_exception_override_reaches_live_preview);
     RUN_TEST(test_exception_dictionary_case_collision);
+    RUN_TEST(test_user_dictionary_learns_and_reinforces);
+    RUN_TEST(test_morphology_strips_suffixes);
+    RUN_TEST(test_ngram_model_scores_plausibility);
+    RUN_TEST(test_resolver_tiers_are_ordered_by_evidence);
     RUN_TEST(test_normalisation_unifies_nukta_forms);
     RUN_TEST(test_dictionary_matches_either_encoding);
     RUN_TEST(test_layout_and_engine_produce_identical_bytes);
