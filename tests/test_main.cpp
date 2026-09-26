@@ -1302,6 +1302,113 @@ static bool test_shipped_layout_matches_probhat() {
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// Dictionary Candidate Resolver & Extensions
+// ---------------------------------------------------------------------------
+
+static bool test_word_dictionary_frequency_and_prefix() {
+    WordDictionary dict;
+    dict.add("বাংলা", 900);
+    dict.add("বাংলাদেশ", 750);
+
+    TEST_ASSERT_EQ(dict.getFrequency("বাংলা"), 900);
+    TEST_ASSERT_EQ(dict.getFrequency("বাংলাদেশ"), 750);
+    TEST_ASSERT_EQ(dict.getFrequency("ভারত"), 0);
+
+    TEST_ASSERT(dict.hasPrefix("বাং"));
+    TEST_ASSERT(dict.hasPrefix("বাংলা"));
+    TEST_ASSERT(!dict.hasPrefix("xyz"));
+    TEST_ASSERT(!dict.hasPrefix(""));
+
+    return true;
+}
+
+static bool test_shipped_word_list_corrections() {
+    WordDictionary dict;
+    TEST_ASSERT(dict.loadFromFile(findConfig("words_bangla.json")));
+
+    // Verified spelling fixes (proper য় and ড় instead of corrupted letters)
+    TEST_ASSERT(dict.contains("সময়"));
+    TEST_ASSERT(dict.contains("হয়"));
+    TEST_ASSERT(dict.contains("যায়"));
+    TEST_ASSERT(dict.contains("কোথায়"));
+    TEST_ASSERT(dict.contains("বড়"));
+    TEST_ASSERT(dict.contains("হয়েছে"));
+    TEST_ASSERT(dict.contains("মেয়ে"));
+    TEST_ASSERT(dict.contains("বিদায়"));
+    TEST_ASSERT(dict.contains("কষ্ট"));
+
+    return true;
+}
+
+static bool test_dictionary_candidate_resolver() {
+    // Tests the homophone resolver extension point:
+    // Without dictionary resolution, homophones always take index 0:
+    //   'manush' -> 'মানুশ' (since 'sh' candidate 0 is 'শ')
+    //   'bhasha' -> 'ভাশা'
+    //   'koshTo' -> 'কশ্ত'
+    // With DictionaryCandidateResolver, it inspects candidate combinations against the
+    // dictionary and selects candidate 1 ('ষ') for 'sh' so the true Bengali words form!
+    PhoneticEngine engine;
+    TEST_ASSERT(loadProductionConfig(engine));
+
+    WordDictionary dict;
+    TEST_ASSERT(dict.loadFromFile(findConfig("words_bangla.json")));
+
+    // 1. Baseline with DefaultCandidateResolver produces candidate 0
+    TEST_ASSERT_EQ(engine.transliterate("manush"), std::string("মানুশ"));
+    TEST_ASSERT_EQ(engine.transliterate("bhasha"), std::string("ভাশা"));
+
+    // 2. Attach DictionaryCandidateResolver
+    engine.setCandidateResolver(std::make_unique<DictionaryCandidateResolver>(&dict));
+
+    TEST_ASSERT_EQ(engine.transliterate("manush"), std::string("মানুষ"));
+    TEST_ASSERT_EQ(engine.transliterate("bhasha"), std::string("ভাষা"));
+    TEST_ASSERT_EQ(engine.transliterate("koshTo"), std::string("কষ্ট"));
+    TEST_ASSERT_EQ(engine.transliterate("shanti"), std::string("শান্তি"));
+
+    // 3. Fallback: unknown words with no dictionary entry cleanly fall back to candidate 0
+    PhoneticEngine baseline;
+    TEST_ASSERT(loadProductionConfig(baseline));
+    TEST_ASSERT_EQ(engine.transliterate("xyzabc"), baseline.transliterate("xyzabc"));
+
+    // 4. Candidate cycling / direct selection on active buffer still overrides cleanly
+    engine.updateActiveBuffer("sh");
+    TEST_ASSERT_EQ(engine.getActiveComposedString(), std::string("শ"));
+    TEST_ASSERT(engine.cycleActiveCandidate());
+    TEST_ASSERT_EQ(engine.getActiveComposedString(), std::string("ষ"));
+
+    return true;
+}
+
+static bool test_fixed_layout_engine_customization() {
+    FixedLayoutEngine layout;
+    layout.setLayoutName("Custom Probhat");
+    layout.setKey('k', "ক");
+    layout.setKey('@', "ং");
+    layout.setKey('.', "়", FixedLayoutEngine::Level::AltGr);
+
+    TEST_ASSERT_EQ(layout.mapKey('k'), std::string("ক"));
+    TEST_ASSERT_EQ(layout.mapKey('@'), std::string("ং"));
+    TEST_ASSERT_EQ(layout.mapKey('.', FixedLayoutEngine::Level::AltGr), std::string("়"));
+
+    // Remove key
+    layout.setKey('@', "");
+    TEST_ASSERT(!layout.isMapped('@'));
+
+    // Serialization to JSON round trip
+    std::string jsonStr = layout.saveToString();
+    TEST_ASSERT(!jsonStr.empty());
+
+    FixedLayoutEngine reloaded;
+    TEST_ASSERT(reloaded.loadFromString(jsonStr));
+    TEST_ASSERT_EQ(reloaded.layoutName(), std::string("Custom Probhat"));
+    TEST_ASSERT_EQ(reloaded.mapKey('k'), std::string("ক"));
+    TEST_ASSERT_EQ(reloaded.mapKey('.', FixedLayoutEngine::Level::AltGr), std::string("়"));
+
+    return true;
+}
+
 int main() {
 #ifdef _WIN32
     // Enable UTF-8 console output for Bengali characters
@@ -1357,6 +1464,10 @@ int main() {
     RUN_TEST(test_suggestion_policy_over_a_whole_word);
     RUN_TEST(test_legacy_single_map_layout_still_loads);
     RUN_TEST(test_shipped_layout_matches_probhat);
+    RUN_TEST(test_word_dictionary_frequency_and_prefix);
+    RUN_TEST(test_shipped_word_list_corrections);
+    RUN_TEST(test_dictionary_candidate_resolver);
+    RUN_TEST(test_fixed_layout_engine_customization);
 
     std::cout << "\n----------------------------------------\n";
     std::cout << "Results: " << g_testsPassed << "/" << g_testsRun << " passed";

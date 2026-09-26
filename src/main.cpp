@@ -33,6 +33,8 @@ static void showHelp() {
         L"  Ctrl + Shift + B\t\tEnglish \u2194 Bengali (phonetic)\n"
         L"  Ctrl + Shift + L\t\tCycle English / phonetic / fixed layout\n"
         L"  Ctrl + Shift + Space\tCycle the highlighted candidate\n"
+        L"  Alt + 1..9\t\tDirectly select candidate chip 1..9\n"
+        L"  Ctrl + 1..9\t\tDirectly select word prediction 1..9\n"
         L"  Ctrl + Shift + D\t\tInsert \u09CE \u0982 \u0983 \u0981 \u099E\n"
         L"  Ctrl + Shift + P\t\tLive preview on / off\n\n"
         L"TYPING (phonetic)\n"
@@ -45,7 +47,7 @@ static void showHelp() {
         L"  Capitals select the retroflex series:\n"
         L"      T=\u099F  D=\u09A1  N=\u09A3  S=\u09B6  Sh=\u09B7  R=\u09A1\u09BC\n\n"
         L"The overlay at your caret shows what was captured, what it composed,\n"
-        L"and the alternatives. Click an alternative to choose it.",
+        L"and the alternatives. Click an alternative or press Alt+1..9 to choose it.",
         L"Shobdomala \u2014 shortcuts and typing guide",
         MB_OK | MB_ICONINFORMATION);
 }
@@ -239,6 +241,8 @@ int main(int argc, char* argv[]) {
     if (!words.loadFromFile(findConfig("words_bangla.json"))) {
         std::cout << "[INIT] No word list found; prediction and autocorrect are off."
                   << std::endl;
+    } else {
+        engine.setCandidateResolver(std::make_unique<DictionaryCandidateResolver>(&words));
     }
     if (!layout.loadFromFile(findConfig("layout_probhat.json"))) {
         std::cout << "[INIT] No fixed layout loaded; fixed-layout mode will be unavailable." << std::endl;
@@ -344,6 +348,8 @@ int main(int argc, char* argv[]) {
               << "  [Ctrl + Shift + B]     : Toggle ENGLISH <-> BENGALI (phonetic)\n"
               << "  [Ctrl + Shift + L]     : Cycle English / phonetic / fixed layout\n"
               << "  [Ctrl + Shift + Space] : Cycle ambiguous candidate\n"
+              << "  [Alt + 1..9]           : Directly select candidate chip 1..9\n"
+              << "  [Ctrl + 1..9]          : Directly select word prediction 1..9\n"
               << "  [Ctrl + Shift + D]     : Special characters (Khanda Ta, Anusvara, ...)\n"
               << "  [Ctrl + Shift + P]     : Toggle live in-place preview\n"
               << "  [Ctrl + C]             : Exit Shobdomala cleanly\n"

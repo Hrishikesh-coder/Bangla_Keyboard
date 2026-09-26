@@ -161,6 +161,18 @@ bool WordDictionary::contains(const std::string& word) const {
     return node && node->frequency > 0;
 }
 
+uint32_t WordDictionary::getFrequency(const std::string& word) const {
+    const Node* node = walk(toCodepoints(word));
+    return (node != nullptr) ? node->frequency : 0;
+}
+
+bool WordDictionary::hasPrefix(const std::string& prefix) const {
+    if (prefix.empty()) {
+        return false;
+    }
+    return walk(toCodepoints(prefix)) != nullptr;
+}
+
 void WordDictionary::collect(const Node* node,
                              std::vector<char32_t>& prefix,
                              std::vector<WordSuggestion>& out) const {

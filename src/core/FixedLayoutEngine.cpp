@@ -112,3 +112,50 @@ size_t FixedLayoutEngine::size() const {
 const std::unordered_map<char, std::string>& FixedLayoutEngine::keyMap(Level level) const {
     return mapFor(level);
 }
+
+void FixedLayoutEngine::setKey(char key, const std::string& glyph, Level level) {
+    auto& map = (level == Level::AltGr) ? m_altgr : m_base;
+    if (glyph.empty()) {
+        map.erase(key);
+    } else {
+        map[key] = glyph;
+    }
+}
+
+std::string FixedLayoutEngine::saveToString() const {
+    json j;
+    j["name"] = m_layoutName.empty() ? "unnamed layout" : m_layoutName;
+    json baseObj = json::object();
+    json shiftObj = json::object();
+    json altgrObj = json::object();
+
+    for (const auto& [k, v] : m_base) {
+        std::string keyStr(1, k);
+        if (std::isupper(static_cast<unsigned char>(k)) ||
+            (k >= '!' && k <= '&') || k == '(' || k == ')' || k == '*' || k == '+' ||
+            k == ':' || k == '<' || k == '>' || k == '?' || k == '@' || k == '^' ||
+            k == '_' || k == '{' || k == '|' || k == '}' || k == '~') {
+            shiftObj[keyStr] = v;
+        } else {
+            baseObj[keyStr] = v;
+        }
+    }
+    for (const auto& [k, v] : m_altgr) {
+        std::string keyStr(1, k);
+        altgrObj[keyStr] = v;
+    }
+
+    j["base"] = baseObj;
+    j["shift"] = shiftObj;
+    j["altgr"] = altgrObj;
+    return j.dump(2);
+}
+
+bool FixedLayoutEngine::saveToFile(const std::string& jsonFilePath) const {
+    std::ofstream file(jsonFilePath);
+    if (!file.is_open()) {
+        return false;
+    }
+    file << saveToString();
+    return true;
+}

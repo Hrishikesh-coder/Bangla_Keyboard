@@ -50,6 +50,12 @@ public:
     /// True when the exact word is in the dictionary.
     bool contains(const std::string& word) const;
 
+    /// Returns the corpus frequency of the word, or 0 if not in the dictionary.
+    uint32_t getFrequency(const std::string& word) const;
+
+    /// Returns true if at least one word in the dictionary starts with the given prefix.
+    bool hasPrefix(const std::string& prefix) const;
+
     /**
      * @brief Words beginning with `prefix`, most frequent first.
      *

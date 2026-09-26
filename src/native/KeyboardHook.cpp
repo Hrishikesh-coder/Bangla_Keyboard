@@ -550,6 +550,37 @@ LRESULT CALLBACK KeyboardHook::hookCallback(int nCode, WPARAM wParam, LPARAM lPa
         return 1; // Consume
     }
 
+    // Shortcut: Direct candidate selection via Alt + 1..9
+    if (isKeyDown && isAlt && !isCtrl && !isShift && kbd->vkCode >= '1' && kbd->vkCode <= '9') {
+        size_t idx = static_cast<size_t>(kbd->vkCode - '1');
+        if (s_engine && !s_buffer.empty()) {
+            auto opts = s_engine->activeCandidateOptions();
+            if (idx < opts.size()) {
+                selectCandidate(idx);
+                return 1;
+            }
+        }
+    }
+
+    // Shortcut: Direct word prediction / correction selection via Ctrl + 1..9
+    if (isKeyDown && isCtrl && !isAlt && !isShift && kbd->vkCode >= '1' && kbd->vkCode <= '9') {
+        size_t idx = static_cast<size_t>(kbd->vkCode - '1');
+        if (s_words && (!s_buffer.empty() || !s_committedText.empty())) {
+            const std::string query = !s_buffer.empty()
+                                          ? (s_engine ? s_engine->getActiveComposedString() : "")
+                                          : s_committedText;
+            SuggestionSet set = suggestFor(*s_words, query, s_buffer.empty());
+            if (idx < set.words.size()) {
+                selectWordOrCorrection(set.words[idx]);
+                return 1;
+            }
+        }
+    }
+
+    if (isKeyUp && (isAlt || isCtrl) && !isShift && kbd->vkCode >= '1' && kbd->vkCode <= '9') {
+        return 1;
+    }
+
     // Shortcut: Special character picker: Ctrl + Shift + D
     if (isKeyDown && isCtrl && isShift && kbd->vkCode == KeyboardState::SPECIAL_VK) {
         s_specialPicker.activate();

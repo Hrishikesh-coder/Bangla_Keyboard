@@ -151,15 +151,14 @@ void CandidateWindow::layout() {
         // An empty candidate is the inherent vowel, which has no glyph. Showing an empty
         // chip would be indistinguishable from a rendering bug, so it is labelled.
         std::wstring text = m_content.candidates[i].empty()
-                                ? std::wstring(L"\u09A0\u09BE\u0981")  // placeholder metrics
+                                ? std::wstring(L"\u2014")  // placeholder metrics
                                 : UiTheme::toWide(m_content.candidates[i]);
-        SIZE size = UiTheme::measureText(hdc, text);
+        std::wstring badgeText = std::to_wstring(i + 1) + L":" + text;
+        SIZE size = UiTheme::measureText(hdc, badgeText);
         int width = size.cx + chipPX * 2;
         chipWidths.push_back(width);
         chipsWidth += width + (i + 1 < chipCount ? gap : 0);
     }
-
-    ReleaseDC(m_hwnd, hdc);
 
     // --- measure the word row label ("did you mean")
     SelectObject(hdc, m_fontLabel);
@@ -175,7 +174,8 @@ void CandidateWindow::layout() {
     int wordsWidth = 0;
     const size_t wordCount = std::min<size_t>(m_content.words.size(), 4);
     for (size_t i = 0; i < wordCount; ++i) {
-        SIZE size = UiTheme::measureText(hdc, UiTheme::toWide(m_content.words[i]));
+        std::wstring wordBadge = std::to_wstring(i + 1) + L"." + UiTheme::toWide(m_content.words[i]);
+        SIZE size = UiTheme::measureText(hdc, wordBadge);
         int width = size.cx + chipPX * 2;
         wordWidths.push_back(width);
         wordsWidth += width + (i + 1 < wordCount ? gap : 0);
@@ -187,6 +187,8 @@ void CandidateWindow::layout() {
     SIZE suggestionSize = suggestionLine.empty()
                               ? SIZE{0, 0}
                               : UiTheme::measureText(hdc, suggestionLine);
+
+    ReleaseDC(m_hwnd, hdc);
 
     const int contentWidth = std::max({ static_cast<int>(headerSize.cx),
                                         static_cast<int>(composedSize.cx),
@@ -414,9 +416,10 @@ void CandidateWindow::onPaint() {
             const std::wstring label = isEpsilon
                                            ? std::wstring(L"\u2014")   // em dash: inherent vowel
                                            : UiTheme::toWide(m_content.candidates[i]);
+            const std::wstring badgeText = std::to_wstring(i + 1) + L":" + label;
             COLORREF textColour = selected ? UiTheme::ACCENT
                                            : (isEpsilon ? UiTheme::TEXT_FAINT : UiTheme::TEXT);
-            UiTheme::drawText(hdc, label, m_chipRects[i], textColour,
+            UiTheme::drawText(hdc, badgeText, m_chipRects[i], textColour,
                               DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX | DT_NOCLIP);
         }
     }
@@ -446,7 +449,8 @@ void CandidateWindow::onPaint() {
                                                  : UiTheme::SURFACE_SUNKEN,
                                    destructive ? UiTheme::ACCENT_DIM : UiTheme::BORDER_SUBTLE);
             SelectObject(hdc, m_fontChip);
-            UiTheme::drawText(hdc, UiTheme::toWide(m_content.words[i]), m_wordRects[i],
+            const std::wstring wordBadge = std::to_wstring(i + 1) + L"." + UiTheme::toWide(m_content.words[i]);
+            UiTheme::drawText(hdc, wordBadge, m_wordRects[i],
                               (hovered || destructive) ? UiTheme::TEXT : UiTheme::TEXT_MUTED,
                               DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX | DT_NOCLIP);
         }

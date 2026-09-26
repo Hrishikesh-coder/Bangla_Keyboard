@@ -32,6 +32,10 @@ public:
     PhoneticEngine();
     explicit PhoneticEngine(std::unique_ptr<ICandidateResolver> resolver);
 
+    /// Sets or replaces the candidate resolver used to disambiguate token candidates.
+    void setCandidateResolver(std::unique_ptr<ICandidateResolver> resolver);
+    const ICandidateResolver* getCandidateResolver() const { return m_resolver.get(); }
+
     /// Loads phonetic rules from a JSON file.
     bool loadRules(const std::string& jsonFilePath);
 

@@ -18,6 +18,14 @@ PhoneticEngine::PhoneticEngine(std::unique_ptr<ICandidateResolver> resolver)
     }
 }
 
+void PhoneticEngine::setCandidateResolver(std::unique_ptr<ICandidateResolver> resolver) {
+    if (resolver) {
+        m_resolver = std::move(resolver);
+    } else {
+        m_resolver = std::make_unique<DefaultCandidateResolver>();
+    }
+}
+
 void PhoneticEngine::rebuildPipeline() {
     m_tokenizer = std::make_unique<Tokenizer>(m_symbolTable);
     m_analyzer = std::make_unique<ContextAnalyzer>(m_symbolTable);

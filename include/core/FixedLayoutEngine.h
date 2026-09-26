@@ -66,6 +66,18 @@ public:
     /// The map for one level, for the on-screen keyboard and the layout editor.
     const std::unordered_map<char, std::string>& keyMap(Level level = Level::Base) const;
 
+    /// Updates or inserts a key mapping. If glyph is empty, removes the mapping.
+    void setKey(char key, const std::string& glyph, Level level = Level::Base);
+
+    /// Sets the layout name.
+    void setLayoutName(const std::string& name) { m_layoutName = name; }
+
+    /// Serializes the current layout to a formatted JSON string.
+    std::string saveToString() const;
+
+    /// Saves the current layout to a JSON file.
+    bool saveToFile(const std::string& jsonFilePath) const;
+
 private:
     /// Selects the map for a level. Shift and base share one map, keyed by the shifted
     /// character, because the keyboard already tells us which one was typed.
