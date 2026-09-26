@@ -5,6 +5,7 @@
 #include "core/SpecialCharPicker.h"
 #include "core/FixedLayoutEngine.h"
 #include "native/KeyboardState.h"
+#include "core/WordDictionary.h"
 #include "ui/CandidateWindow.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -38,7 +39,8 @@ public:
      */
     bool install(PhoneticEngine* engine,
                  FixedLayoutEngine* layout = nullptr,
-                 CandidateWindow* candidateWindow = nullptr);
+                 CandidateWindow* candidateWindow = nullptr,
+                 WordDictionary* words = nullptr);
 
     /**
      * @brief Applies a candidate the user picked by clicking a chip, and redraws.
@@ -48,6 +50,14 @@ public:
      * function pointer.
      */
     static void selectCandidate(size_t optionIndex);
+
+    /**
+     * @brief Replaces the whole in-progress word with a prediction and commits it.
+     *
+     * Distinct from selectCandidate, which swaps one letter. This throws away the
+     * composition entirely, so it must only ever be reachable from the word row.
+     */
+    static void selectWord(const std::string& word);
 
     /// Pushes the current composition state into the candidate window.
     static void refreshUi();
@@ -96,6 +106,7 @@ private:
     static PhoneticEngine* s_engine;
     static FixedLayoutEngine* s_layout;
     static CandidateWindow* s_candidateWindow;
+    static WordDictionary* s_words;
     static InputBuffer s_buffer;
     static SpecialCharPicker s_specialPicker;
     static DWORD s_threadId;

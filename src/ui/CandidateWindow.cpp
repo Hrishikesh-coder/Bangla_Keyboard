@@ -114,6 +114,7 @@ POINT CandidateWindow::caretScreenPosition() {
 
 void CandidateWindow::layout() {
     m_chipRects.clear();
+    m_wordRects.clear();
 
     const int pad    = UiTheme::scale(UiTheme::PAD, m_dpi);
     const int gap    = UiTheme::scale(UiTheme::GAP, m_dpi);
@@ -160,6 +161,18 @@ void CandidateWindow::layout() {
 
     ReleaseDC(m_hwnd, hdc);
 
+    // --- measure the word-prediction chips
+    SelectObject(hdc, m_fontChip);
+    std::vector<int> wordWidths;
+    int wordsWidth = 0;
+    const size_t wordCount = std::min<size_t>(m_content.words.size(), 4);
+    for (size_t i = 0; i < wordCount; ++i) {
+        SIZE size = UiTheme::measureText(hdc, UiTheme::toWide(m_content.words[i]));
+        int width = size.cx + chipPX * 2;
+        wordWidths.push_back(width);
+        wordsWidth += width + (i + 1 < wordCount ? gap : 0);
+    }
+
     // --- measure the suggestion row
     SelectObject(hdc, m_fontLabel);
     const std::wstring suggestionLine = suggestionText();
@@ -170,6 +183,7 @@ void CandidateWindow::layout() {
     const int contentWidth = std::max({ static_cast<int>(headerSize.cx),
                                         static_cast<int>(composedSize.cx),
                                         chipsWidth,
+                                        wordsWidth,
                                         static_cast<int>(suggestionSize.cx) });
     const int minWidth = UiTheme::scale(180, m_dpi);
 
@@ -178,6 +192,16 @@ void CandidateWindow::layout() {
     if (chipCount > 0) {
         m_height += gap + chipH + UiTheme::scale(4, m_dpi);
     }
+    if (wordCount > 0) {
+        const int y = m_height - pad + UiTheme::scale(2, m_dpi);
+        int x = pad;
+        for (size_t i = 0; i < wordCount; ++i) {
+            m_wordRects.push_back(RECT{ x, y, x + wordWidths[i], y + chipH });
+            x += wordWidths[i] + gap;
+        }
+        m_height += chipH + UiTheme::scale(6, m_dpi);
+    }
+
     m_suggestionY = 0;
     if (!suggestionLine.empty()) {
         m_suggestionY = m_height - pad + UiTheme::scale(2, m_dpi);
@@ -242,6 +266,7 @@ void CandidateWindow::update(const Content& content) {
 
     m_content = content;
     m_hoverChip = -1;
+    m_hoverWord = -1;
 
     UINT dpi = UiTheme::dpiForWindow(m_hwnd);
     if (dpi != m_dpi) {
@@ -287,6 +312,15 @@ std::wstring CandidateWindow::suggestionText() const {
 int CandidateWindow::hitTestChip(POINT point) const {
     for (size_t i = 0; i < m_chipRects.size(); ++i) {
         if (PtInRect(&m_chipRects[i], point)) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+int CandidateWindow::hitTestWord(POINT point) const {
+    for (size_t i = 0; i < m_wordRects.size(); ++i) {
+        if (PtInRect(&m_wordRects[i], point)) {
             return static_cast<int>(i);
         }
     }
@@ -373,6 +407,23 @@ void CandidateWindow::onPaint() {
         }
     }
 
+    // --- whole-word predictions -----------------------------------------------
+    if (!m_wordRects.empty()) {
+        for (size_t i = 0; i < m_wordRects.size(); ++i) {
+            const bool hovered = (static_cast<int>(i) == m_hoverWord);
+            // Deliberately not accented. The accent marks the selected *candidate*; a
+            // prediction is an offer, not a current selection, and giving both the same
+            // colour would make it unclear which one Ctrl+Shift+Space is acting on.
+            UiTheme::fillRoundRect(hdc, m_wordRects[i], UiTheme::scale(7, m_dpi),
+                                   hovered ? UiTheme::BORDER_SUBTLE : UiTheme::SURFACE_SUNKEN,
+                                   UiTheme::BORDER_SUBTLE);
+            SelectObject(hdc, m_fontChip);
+            UiTheme::drawText(hdc, UiTheme::toWide(m_content.words[i]), m_wordRects[i],
+                              hovered ? UiTheme::TEXT : UiTheme::TEXT_MUTED,
+                              DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX | DT_NOCLIP);
+        }
+    }
+
     // --- suggestion row: which longer tokens still start with what has been typed
     const std::wstring suggestionLine = suggestionText();
     if (!suggestionLine.empty() && m_suggestionY > 0) {
@@ -423,8 +474,10 @@ LRESULT CALLBACK CandidateWindow::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LP
             if (!self) break;
             POINT point { lparamX(lParam), lparamY(lParam) };
             int chip = self->hitTestChip(point);
-            if (chip != self->m_hoverChip) {
+            int word = self->hitTestWord(point);
+            if (chip != self->m_hoverChip || word != self->m_hoverWord) {
                 self->m_hoverChip = chip;
+                self->m_hoverWord = word;
                 InvalidateRect(hwnd, nullptr, FALSE);
             }
             if (!self->m_trackingMouse) {
@@ -441,8 +494,9 @@ LRESULT CALLBACK CandidateWindow::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LP
         case WM_MOUSELEAVE:
             if (self) {
                 self->m_trackingMouse = false;
-                if (self->m_hoverChip != -1) {
+                if (self->m_hoverChip != -1 || self->m_hoverWord != -1) {
                     self->m_hoverChip = -1;
+                    self->m_hoverWord = -1;
                     InvalidateRect(hwnd, nullptr, FALSE);
                 }
             }
@@ -454,6 +508,11 @@ LRESULT CALLBACK CandidateWindow::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LP
             int chip = self->hitTestChip(point);
             if (chip >= 0 && self->m_onSelect) {
                 self->m_onSelect(static_cast<size_t>(chip));
+                return 0;
+            }
+            int word = self->hitTestWord(point);
+            if (word >= 0 && self->m_onSelectWord) {
+                self->m_onSelectWord(self->m_content.words[static_cast<size_t>(word)]);
             }
             return 0;
         }

@@ -29,6 +29,7 @@ set(CORE_SOURCES
     src/core/Tokenizer.cpp
     src/core/TokenTrie.cpp
     src/core/UnicodeComposer.cpp
+    src/core/WordDictionary.cpp
 )
 
 # Native Win32 hook and injection sources

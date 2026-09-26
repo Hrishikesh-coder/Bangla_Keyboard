@@ -53,6 +53,17 @@ public:
          * widened the card without limit as more completions matched.
          */
         std::vector<std::string> suggestions;
+
+        /**
+         * Whole-word predictions for what has been composed so far, most likely first.
+         * Distinct from `candidates`: a candidate replaces one letter of the current word,
+         * a prediction replaces the entire word. They therefore get separate rows and
+         * separate callbacks, because confusing the two would silently destroy input.
+         */
+        std::vector<std::string> words;
+
+        /// True when `words` are corrections of a misspelling rather than completions.
+        bool wordsAreCorrections = false;
     };
 
     CandidateWindow() = default;
@@ -72,6 +83,11 @@ public:
 
     /// Invoked when the user clicks a candidate chip, with that chip's index.
     void setOnSelect(std::function<void(size_t)> callback) { m_onSelect = std::move(callback); }
+
+    /// Invoked when the user clicks a whole-word prediction, with the word itself.
+    void setOnSelectWord(std::function<void(const std::string&)> callback) {
+        m_onSelectWord = std::move(callback);
+    }
 
     HWND handle() const { return m_hwnd; }
 
@@ -97,6 +113,7 @@ private:
     void positionAtCaret();
 
     int hitTestChip(POINT clientPoint) const;
+    int hitTestWord(POINT clientPoint) const;
 
     /// Formats the suggestion row, or an empty string when there is nothing to suggest.
     std::wstring suggestionText() const;
@@ -111,12 +128,15 @@ private:
 
     Content m_content;
     std::vector<RECT> m_chipRects;
+    std::vector<RECT> m_wordRects;
     int m_width = 0;
     int m_height = 0;
     int m_suggestionY = 0;
     int m_hoverChip = -1;
+    int m_hoverWord = -1;
     bool m_visible = false;
     bool m_trackingMouse = false;
 
     std::function<void(size_t)> m_onSelect;
+    std::function<void(const std::string&)> m_onSelectWord;
 };

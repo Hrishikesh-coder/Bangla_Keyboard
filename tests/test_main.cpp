@@ -5,6 +5,7 @@
 #include "core/CandidateResolver.h"
 #include "core/UnicodeComposer.h"
 #include "core/SpecialCharPicker.h"
+#include "core/WordDictionary.h"
 #include "core/PhoneticEngine.h"
 #include "core/TokenTrie.h"
 #include "core/ContextAnalyzer.h"
@@ -12,6 +13,7 @@
 #include "core/FixedLayoutEngine.h"
 #include "core/InputBuffer.h"
 #include "core/SpecialCharPicker.h"
+#include "core/WordDictionary.h"
 
 #include <fstream>
 
@@ -930,6 +932,156 @@ static bool test_exception_dictionary_case_collision() {
     return true;
 }
 
+
+// ---------------------------------------------------------------------------
+// Word dictionary: prediction and correction
+// ---------------------------------------------------------------------------
+
+static bool test_word_dictionary_codepoints() {
+    // Every Bengali letter is three UTF-8 bytes. Indexing by byte would make a one-letter
+    // typo look like three edits, so the dictionary works in codepoints throughout.
+    auto codepoints = WordDictionary::toCodepoints("বাংলা");
+    TEST_ASSERT_EQ(codepoints.size(), 5);
+    TEST_ASSERT(codepoints[0] == 0x09AC);
+    TEST_ASSERT(codepoints[1] == 0x09BE);
+    TEST_ASSERT(codepoints[2] == 0x0982);
+
+    // Round trip.
+    TEST_ASSERT_EQ(WordDictionary::fromCodepoints(codepoints), std::string("বাংলা"));
+
+    // Mixed ASCII and Bengali.
+    TEST_ASSERT_EQ(WordDictionary::toCodepoints("aক").size(), 2);
+
+    // A truncated sequence must not read past the end of the string.
+    TEST_ASSERT(!WordDictionary::toCodepoints("\xE0\xA6").empty());
+
+    TEST_ASSERT(WordDictionary::toCodepoints("").empty());
+    return true;
+}
+
+static bool test_word_prediction_ranks_by_frequency() {
+    WordDictionary dict;
+    TEST_ASSERT(dict.loadFromString(R"({
+        "words": {
+            "বাংলা": 900,
+            "বাংলাদেশ": 750,
+            "বাড়ি": 700,
+            "বই": 500,
+            "কাজ": 400
+        }
+    })"));
+    TEST_ASSERT_EQ(dict.size(), 5);
+    TEST_ASSERT(dict.contains("বাংলা"));
+    TEST_ASSERT(!dict.contains("বাং"));
+
+    // Prefix match, most frequent first.
+    auto hits = dict.predict("বাং", 5);
+    TEST_ASSERT_EQ(hits.size(), 2);
+    TEST_ASSERT_EQ(hits[0].word, std::string("বাংলা"));
+    TEST_ASSERT_EQ(hits[1].word, std::string("বাংলাদেশ"));
+    TEST_ASSERT_EQ(hits[0].distance, 0);
+
+    // A word that is itself a prefix of longer words is included.
+    hits = dict.predict("বাংলা", 5);
+    TEST_ASSERT_EQ(hits.size(), 2);
+    TEST_ASSERT_EQ(hits[0].word, std::string("বাংলা"));
+
+    // limit truncates after ranking, so the top result survives.
+    hits = dict.predict("বা", 1);
+    TEST_ASSERT_EQ(hits.size(), 1);
+    TEST_ASSERT_EQ(hits[0].word, std::string("বাংলা"));
+
+    // An unknown prefix yields nothing rather than everything.
+    TEST_ASSERT(dict.predict("xyz", 5).empty());
+    TEST_ASSERT(dict.predict("", 5).empty());
+
+    return true;
+}
+
+static bool test_word_correction_edit_distance() {
+    WordDictionary dict;
+    dict.add("বাংলা", 900);
+    dict.add("বাংলাদেশ", 750);
+    dict.add("কাজ", 400);
+
+    // One substitution away: ল -> ন
+    auto hits = dict.correct("বাংনা", 1, 5);
+    TEST_ASSERT(!hits.empty());
+    TEST_ASSERT_EQ(hits[0].word, std::string("বাংলা"));
+    TEST_ASSERT_EQ(hits[0].distance, 1);
+
+    // One deletion away.
+    hits = dict.correct("বাংল", 1, 5);
+    TEST_ASSERT(!hits.empty());
+    TEST_ASSERT_EQ(hits[0].word, std::string("বাংলা"));
+
+    // An exact match is distance 0 and ranks first.
+    hits = dict.correct("বাংলা", 2, 5);
+    TEST_ASSERT(!hits.empty());
+    TEST_ASSERT_EQ(hits[0].word, std::string("বাংলা"));
+    TEST_ASSERT_EQ(hits[0].distance, 0);
+
+    // Beyond the threshold, nothing is returned rather than a bad guess.
+    TEST_ASSERT(dict.correct("কম্পিউটার", 1, 5).empty());
+
+    // maxDistance 0 degenerates to exact match.
+    TEST_ASSERT_EQ(dict.correct("বাংলা", 0, 5).size(), 1);
+    TEST_ASSERT(dict.correct("বাংনা", 0, 5).empty());
+
+    TEST_ASSERT(dict.correct("", 2, 5).empty());
+    return true;
+}
+
+static bool test_word_dictionary_accepts_bare_list() {
+    // A list with no frequencies still has to load: most word lists in the wild are one
+    // word per line with no counts.
+    WordDictionary dict;
+    TEST_ASSERT(dict.loadFromString(R"({ "words": ["বই", "বাড়ি"] })"));
+    TEST_ASSERT_EQ(dict.size(), 2);
+    TEST_ASSERT(dict.contains("বই"));
+
+    auto hits = dict.predict("ব", 5);
+    TEST_ASSERT_EQ(hits.size(), 2);
+    // Equal frequencies fall back to a stable alphabetical order rather than map order.
+    TEST_ASSERT(hits[0].word < hits[1].word);
+    return true;
+}
+
+static bool test_shipped_word_list_loads() {
+    WordDictionary dict;
+    TEST_ASSERT(dict.loadFromFile(findConfig("words_bangla.json")));
+    TEST_ASSERT(dict.size() > 100);
+
+    // The engine's own headline example must be predictable from two letters.
+    auto hits = dict.predict("বাং", 5);
+    TEST_ASSERT(!hits.empty());
+    TEST_ASSERT_EQ(hits[0].word, std::string("বাংলা"));
+
+    // And a plausible typo must correct to it.
+    auto fixes = dict.correct("বাংনা", 2, 5);
+    TEST_ASSERT(!fixes.empty());
+    TEST_ASSERT_EQ(fixes[0].word, std::string("বাংলা"));
+
+    return true;
+}
+
+static bool test_prediction_reaches_from_the_phonetic_engine() {
+    // The end-to-end path that matters: Roman in, Bengali composed, words predicted from
+    // that composition. If these two components disagree about encoding, this breaks.
+    PhoneticEngine engine;
+    TEST_ASSERT(loadProductionConfig(engine));
+
+    WordDictionary dict;
+    TEST_ASSERT(dict.loadFromFile(findConfig("words_bangla.json")));
+
+    const std::string composed = engine.transliterate("bang");
+    auto hits = dict.predict(composed, 5);
+    TEST_ASSERT(!hits.empty());
+    TEST_ASSERT_EQ(hits[0].word, std::string("বাংলা"));
+
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Fixed layout engine
 // ---------------------------------------------------------------------------
@@ -1106,6 +1258,12 @@ int main() {
     RUN_TEST(test_exception_override_reaches_live_preview);
     RUN_TEST(test_exception_dictionary_case_collision);
     RUN_TEST(test_fixed_layout_engine);
+    RUN_TEST(test_word_dictionary_codepoints);
+    RUN_TEST(test_word_prediction_ranks_by_frequency);
+    RUN_TEST(test_word_correction_edit_distance);
+    RUN_TEST(test_word_dictionary_accepts_bare_list);
+    RUN_TEST(test_shipped_word_list_loads);
+    RUN_TEST(test_prediction_reaches_from_the_phonetic_engine);
     RUN_TEST(test_legacy_single_map_layout_still_loads);
     RUN_TEST(test_shipped_layout_matches_probhat);
 

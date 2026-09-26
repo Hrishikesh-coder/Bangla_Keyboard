@@ -19,7 +19,8 @@ CORE_SRCS = src/core/CandidateResolver.cpp \
             src/core/TokenContext.cpp \
             src/core/Tokenizer.cpp \
             src/core/TokenTrie.cpp \
-            src/core/UnicodeComposer.cpp
+            src/core/UnicodeComposer.cpp \
+            src/core/WordDictionary.cpp
 
 NATIVE_SRCS = src/native/ConsoleHost.cpp \
               src/native/InputInjector.cpp \
@@ -35,7 +36,7 @@ UI_SRCS = src/ui/UiTheme.cpp \
 TEST_SRCS = tests/test_main.cpp $(CORE_SRCS)
 APP_SRCS  = src/main.cpp $(CORE_SRCS) $(NATIVE_SRCS) $(UI_SRCS)
 
-CONFIGS = config/phonetic_rules.json config/exceptions.json config/layout_probhat.json
+CONFIGS = config/phonetic_rules.json config/exceptions.json config/layout_probhat.json config/words_bangla.json
 
 ifeq ($(OS),Windows_NT)
     EXE      := .exe
