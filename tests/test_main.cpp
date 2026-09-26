@@ -1464,10 +1464,13 @@ int main() {
     RUN_TEST(test_suggestion_policy_over_a_whole_word);
     RUN_TEST(test_legacy_single_map_layout_still_loads);
     RUN_TEST(test_shipped_layout_matches_probhat);
+<<<<<<< HEAD
     RUN_TEST(test_word_dictionary_frequency_and_prefix);
     RUN_TEST(test_shipped_word_list_corrections);
     RUN_TEST(test_dictionary_candidate_resolver);
     RUN_TEST(test_fixed_layout_engine_customization);
+=======
+>>>>>>> 7c0439cff3e302b8d6ca3c2e2c7aed07a56deca5
 
     std::cout << "\n----------------------------------------\n";
     std::cout << "Results: " << g_testsPassed << "/" << g_testsRun << " passed";

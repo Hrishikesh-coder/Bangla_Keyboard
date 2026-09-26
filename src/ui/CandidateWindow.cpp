@@ -160,6 +160,8 @@ void CandidateWindow::layout() {
         chipsWidth += width + (i + 1 < chipCount ? gap : 0);
     }
 
+    ReleaseDC(m_hwnd, hdc);
+
     // --- measure the word row label ("did you mean")
     SelectObject(hdc, m_fontLabel);
     const std::wstring wordLabel = m_content.wordsAreCorrections
@@ -416,10 +418,16 @@ void CandidateWindow::onPaint() {
             const std::wstring label = isEpsilon
                                            ? std::wstring(L"\u2014")   // em dash: inherent vowel
                                            : UiTheme::toWide(m_content.candidates[i]);
+<<<<<<< HEAD
             const std::wstring badgeText = std::to_wstring(i + 1) + L":" + label;
             COLORREF textColour = selected ? UiTheme::ACCENT
                                            : (isEpsilon ? UiTheme::TEXT_FAINT : UiTheme::TEXT);
             UiTheme::drawText(hdc, badgeText, m_chipRects[i], textColour,
+=======
+            COLORREF textColour = selected ? UiTheme::ACCENT
+                                           : (isEpsilon ? UiTheme::TEXT_FAINT : UiTheme::TEXT);
+            UiTheme::drawText(hdc, label, m_chipRects[i], textColour,
+>>>>>>> 7c0439cff3e302b8d6ca3c2e2c7aed07a56deca5
                               DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX | DT_NOCLIP);
         }
     }
@@ -449,8 +457,12 @@ void CandidateWindow::onPaint() {
                                                  : UiTheme::SURFACE_SUNKEN,
                                    destructive ? UiTheme::ACCENT_DIM : UiTheme::BORDER_SUBTLE);
             SelectObject(hdc, m_fontChip);
+<<<<<<< HEAD
             const std::wstring wordBadge = std::to_wstring(i + 1) + L"." + UiTheme::toWide(m_content.words[i]);
             UiTheme::drawText(hdc, wordBadge, m_wordRects[i],
+=======
+            UiTheme::drawText(hdc, UiTheme::toWide(m_content.words[i]), m_wordRects[i],
+>>>>>>> 7c0439cff3e302b8d6ca3c2e2c7aed07a56deca5
                               (hovered || destructive) ? UiTheme::TEXT : UiTheme::TEXT_MUTED,
                               DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX | DT_NOCLIP);
         }

@@ -33,8 +33,6 @@ static void showHelp() {
         L"  Ctrl + Shift + B\t\tEnglish \u2194 Bengali (phonetic)\n"
         L"  Ctrl + Shift + L\t\tCycle English / phonetic / fixed layout\n"
         L"  Ctrl + Shift + Space\tCycle the highlighted candidate\n"
-        L"  Alt + 1..9\t\tDirectly select candidate chip 1..9\n"
-        L"  Ctrl + 1..9\t\tDirectly select word prediction 1..9\n"
         L"  Ctrl + Shift + D\t\tInsert \u09CE \u0982 \u0983 \u0981 \u099E\n"
         L"  Ctrl + Shift + P\t\tLive preview on / off\n\n"
         L"TYPING (phonetic)\n"
@@ -47,7 +45,7 @@ static void showHelp() {
         L"  Capitals select the retroflex series:\n"
         L"      T=\u099F  D=\u09A1  N=\u09A3  S=\u09B6  Sh=\u09B7  R=\u09A1\u09BC\n\n"
         L"The overlay at your caret shows what was captured, what it composed,\n"
-        L"and the alternatives. Click an alternative or press Alt+1..9 to choose it.",
+        L"and the alternatives. Click an alternative to choose it.",
         L"Shobdomala \u2014 shortcuts and typing guide",
         MB_OK | MB_ICONINFORMATION);
 }

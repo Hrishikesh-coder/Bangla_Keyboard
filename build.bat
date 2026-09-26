@@ -22,6 +22,13 @@ if %ERRORLEVEL% neq 0 (
     exit /b %ERRORLEVEL%
 )
 
+echo [BUILD] Compiling shobdomala_cli.exe...
+g++ %CXX_FLAGS% -o bin\shobdomala_cli.exe src\main.cpp %CORE_SRCS% %NATIVE_SRCS% %UI_SRCS% -luser32 -lgdi32 -lshell32
+if %ERRORLEVEL% neq 0 (
+    echo [ERROR] Failed to compile shobdomala_cli.exe
+    exit /b %ERRORLEVEL%
+)
+
 echo [BUILD] Compiling shobdomala_tests.exe...
 g++ %CXX_FLAGS% -Itests -o bin\shobdomala_tests.exe tests\test_main.cpp %CORE_SRCS%
 if %ERRORLEVEL% neq 0 (
