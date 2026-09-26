@@ -298,7 +298,9 @@ int main(int argc, char* argv[]) {
         KeyboardHook::selectCandidate(optionIndex);
     });
     g_candidateWindow.setOnSelectWord([](const std::string& word) {
-        KeyboardHook::selectWord(word);
+        // One callback, two meanings, disambiguated by whether a word is still in progress:
+        // mid-word it completes, after the boundary it corrects what already landed.
+        KeyboardHook::selectWordOrCorrection(word);
     });
 
     if (!g_onScreenKeyboard.create(instance, &layout)) {

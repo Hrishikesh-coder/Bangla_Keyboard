@@ -85,7 +85,30 @@ code change. Nothing in the engine assumes this particular list.
 
 ---
 
-## 5. No floating candidate window in fixed-layout mode
+## 5. Autocorrect is offered, never applied
+
+Nothing is ever silently changed. When a finished word is not in the dictionary and near
+matches exist, the overlay stays open with a **did you mean** row; clicking a chip replaces
+the word, and typing anything else dismisses it. A word that *is* in the dictionary gets no
+offer at all, which is the common case and therefore the quiet one.
+
+Two boundaries worth knowing:
+
+- **A word ended with Enter gets no offer.** Applying a correction means deleting the word
+  and the delimiter and retyping both, and re-injecting a newline could submit a form or run
+  a command. Space and punctuation are safe to retype; Enter is not.
+- **The offer assumes the text is still next to the caret.** It is dismissed as soon as the
+  user types again, but the same caveat as live preview applies: a click elsewhere that we
+  cannot observe would make the deletion land in the wrong place.
+
+An earlier version corrected *prefixes* while typing, which was wrong in principle. Most
+prefixes of a correctly typed word match no dictionary entry — বাংলা passes through বান —
+so it told users they had mistyped words they were typing perfectly. `suggestFor()` in
+`core/SuggestionPolicy.h` now separates the two cases, and three tests pin the distinction.
+
+---
+
+## 6. No floating candidate window in fixed-layout mode
 
 Fixed-layout typing is stateless by design: one key, one glyph, no buffer. There is nothing
 in progress to preview and no candidates to choose between, so the overlay does not appear.
@@ -95,7 +118,7 @@ confirmation of which mode you are in is the tray icon.
 
 ---
 
-## 6. No layout editor
+## 7. No layout editor
 
 The on-screen keyboard renders whatever `config/layout_probhat.json` contains, so a custom
 layout is already a data edit. Making the key caps editable in place is the natural next
@@ -105,7 +128,7 @@ glyph) and a way to save without clobbering a file the user may have hand-edited
 
 ---
 
-## 7. Rendering is delegated, and that is the correct architecture
+## 8. Rendering is delegated, and that is the correct architecture
 
 `UnicodeComposer` emits a logically correct codepoint sequence — ক + ্ + ষ. Turning that
 into the ligature ক্ষ, reordering the pre-base ে and ি glyphs so they draw to the *left* of
@@ -118,7 +141,7 @@ shaping — a failure we can neither detect nor fix from inside the IME.
 
 ---
 
-## 8. Untested on real hardware
+## 9. Untested on real hardware
 
 Everything is compile-verified (MinGW, `-Wall -Wextra`, no warnings) and the engine has 40
 automated tests. The Windows UI layer has never been run.

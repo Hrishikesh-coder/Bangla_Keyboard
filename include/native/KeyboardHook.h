@@ -5,6 +5,7 @@
 #include "core/SpecialCharPicker.h"
 #include "core/FixedLayoutEngine.h"
 #include "native/KeyboardState.h"
+#include "core/SuggestionPolicy.h"
 #include "core/WordDictionary.h"
 #include "ui/CandidateWindow.h"
 
@@ -58,6 +59,18 @@ public:
      * composition entirely, so it must only ever be reachable from the word row.
      */
     static void selectWord(const std::string& word);
+
+    /**
+     * @brief Replaces the word that was just committed with a correction.
+     *
+     * Separate from selectWord because the target is different: the word is already in the
+     * document, followed by the delimiter that ended it, so both have to be removed and
+     * both retyped.
+     */
+    static void applyCorrection(const std::string& word);
+
+    /// Routes a clicked word chip to completion or correction, whichever is in play.
+    static void selectWordOrCorrection(const std::string& word);
 
     /// Pushes the current composition state into the candidate window.
     static void refreshUi();
@@ -116,4 +129,13 @@ private:
 
     /// The preview text currently displayed, so a commit can skip a redundant redraw.
     static std::string s_previewText;
+
+    /// Shows corrections for the word just committed, if it was not a real word.
+    static void offerCorrections();
+
+    /// The word most recently committed, and the delimiter that ended it. Both are needed
+    /// to undo a commit when the user takes a correction.
+    static std::string s_committedText;
+    static size_t s_committedUnits;
+    static char s_committedDelimiter;
 };

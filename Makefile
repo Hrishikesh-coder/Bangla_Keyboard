@@ -15,6 +15,7 @@ CORE_SRCS = src/core/CandidateResolver.cpp \
             src/core/InputBuffer.cpp \
             src/core/PhoneticEngine.cpp \
             src/core/SpecialCharPicker.cpp \
+            src/core/SuggestionPolicy.cpp \
             src/core/SymbolTable.cpp \
             src/core/TokenContext.cpp \
             src/core/Tokenizer.cpp \

@@ -6,6 +6,7 @@
 #include "core/UnicodeComposer.h"
 #include "core/SpecialCharPicker.h"
 #include "core/WordDictionary.h"
+#include "core/SuggestionPolicy.h"
 #include "core/PhoneticEngine.h"
 #include "core/TokenTrie.h"
 #include "core/ContextAnalyzer.h"
@@ -14,6 +15,7 @@
 #include "core/InputBuffer.h"
 #include "core/SpecialCharPicker.h"
 #include "core/WordDictionary.h"
+#include "core/SuggestionPolicy.h"
 
 #include <fstream>
 
@@ -1082,6 +1084,92 @@ static bool test_prediction_reaches_from_the_phonetic_engine() {
     return true;
 }
 
+
+static bool test_suggestion_policy_never_corrects_a_prefix() {
+    WordDictionary dict;
+    dict.add("বাংলা", 900);
+    dict.add("বাংলাদেশ", 750);
+    dict.add("গান", 600);
+    dict.add("বোন", 580);
+
+    // "বান" starts no word in the dictionary, but it is a prefix the user passes through
+    // while typing বাংলা correctly. Offering গান and বোন there would tell them they had
+    // mistyped a word they are typing perfectly, and the row would flip back to
+    // completions on the very next keystroke.
+    SuggestionSet midWord = suggestFor(dict, "বান", /*wordFinished=*/false);
+    TEST_ASSERT(midWord.kind == SuggestionKind::None);
+    TEST_ASSERT(midWord.empty());
+
+    // A prefix that does match offers completions.
+    SuggestionSet prefix = suggestFor(dict, "বাং", false);
+    TEST_ASSERT(prefix.kind == SuggestionKind::Completion);
+    TEST_ASSERT_EQ(prefix.words.size(), 2);
+    TEST_ASSERT_EQ(prefix.words[0], std::string("বাংলা"));
+
+    // The word already typed is not offered back as a completion of itself.
+    SuggestionSet exact = suggestFor(dict, "বাংলা", false);
+    TEST_ASSERT(exact.kind == SuggestionKind::Completion);
+    TEST_ASSERT_EQ(exact.words.size(), 1);
+    TEST_ASSERT_EQ(exact.words[0], std::string("বাংলাদেশ"));
+
+    return true;
+}
+
+static bool test_suggestion_policy_corrects_only_finished_words() {
+    WordDictionary dict;
+    dict.add("বাংলা", 900);
+    dict.add("গান", 600);
+
+    // Finished and real: say nothing. Silence is the correct output and the common case.
+    SuggestionSet good = suggestFor(dict, "বাংলা", /*wordFinished=*/true);
+    TEST_ASSERT(good.kind == SuggestionKind::None);
+
+    // Finished and not a word: offer replacements, flagged as corrections so the UI can
+    // say that clicking one discards what was typed rather than extending it.
+    SuggestionSet typo = suggestFor(dict, "বাংনা", true);
+    TEST_ASSERT(typo.kind == SuggestionKind::Correction);
+    TEST_ASSERT(!typo.empty());
+    TEST_ASSERT_EQ(typo.words[0], std::string("বাংলা"));
+
+    // Too short to correct meaningfully: at one or two letters an edit distance of two
+    // reaches most of the dictionary.
+    TEST_ASSERT(suggestFor(dict, "বা", true).kind == SuggestionKind::None);
+
+    // Finished, long, and nowhere near anything: stay silent rather than guess.
+    TEST_ASSERT(suggestFor(dict, "ক্ষত্রিয়", true).kind == SuggestionKind::None);
+
+    // Empty input, and an empty dictionary, are both silent.
+    TEST_ASSERT(suggestFor(dict, "", true).kind == SuggestionKind::None);
+    WordDictionary none;
+    TEST_ASSERT(suggestFor(none, "বাংলা", true).kind == SuggestionKind::None);
+
+    return true;
+}
+
+static bool test_suggestion_policy_over_a_whole_word() {
+    // Walk every prefix of a correctly typed word and assert the row never once claims the
+    // user made a mistake. This is the regression the policy exists to prevent.
+    PhoneticEngine engine;
+    TEST_ASSERT(loadProductionConfig(engine));
+    WordDictionary dict;
+    TEST_ASSERT(dict.loadFromFile(findConfig("words_bangla.json")));
+
+    const std::string roman = "bangla";
+    for (size_t i = 1; i <= roman.size(); ++i) {
+        const std::string composed = engine.transliterate(roman.substr(0, i));
+        SuggestionSet set = suggestFor(dict, composed, /*wordFinished=*/false);
+        if (set.kind == SuggestionKind::Correction) {
+            std::cerr << "  corrected a prefix: \"" << composed << "\"\n";
+            return false;
+        }
+    }
+
+    // And the finished word is recognised, so nothing is offered at the boundary.
+    TEST_ASSERT(suggestFor(dict, engine.transliterate(roman), true).kind == SuggestionKind::None);
+
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Fixed layout engine
 // ---------------------------------------------------------------------------
@@ -1264,6 +1352,9 @@ int main() {
     RUN_TEST(test_word_dictionary_accepts_bare_list);
     RUN_TEST(test_shipped_word_list_loads);
     RUN_TEST(test_prediction_reaches_from_the_phonetic_engine);
+    RUN_TEST(test_suggestion_policy_never_corrects_a_prefix);
+    RUN_TEST(test_suggestion_policy_corrects_only_finished_words);
+    RUN_TEST(test_suggestion_policy_over_a_whole_word);
     RUN_TEST(test_legacy_single_map_layout_still_loads);
     RUN_TEST(test_shipped_layout_matches_probhat);
 

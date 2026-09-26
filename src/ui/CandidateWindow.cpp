@@ -161,6 +161,14 @@ void CandidateWindow::layout() {
 
     ReleaseDC(m_hwnd, hdc);
 
+    // --- measure the word row label ("did you mean")
+    SelectObject(hdc, m_fontLabel);
+    const std::wstring wordLabel = m_content.wordsAreCorrections
+                                       ? std::wstring(L"did you mean")
+                                       : std::wstring();
+    SIZE wordLabelSize = wordLabel.empty() ? SIZE{0, 0}
+                                           : UiTheme::measureText(hdc, wordLabel);
+
     // --- measure the word-prediction chips
     SelectObject(hdc, m_fontChip);
     std::vector<int> wordWidths;
@@ -193,7 +201,13 @@ void CandidateWindow::layout() {
         m_height += gap + chipH + UiTheme::scale(4, m_dpi);
     }
     if (wordCount > 0) {
-        const int y = m_height - pad + UiTheme::scale(2, m_dpi);
+        m_wordLabelY = 0;
+        int y = m_height - pad + UiTheme::scale(2, m_dpi);
+        if (!wordLabel.empty()) {
+            m_wordLabelY = y;
+            y += wordLabelSize.cy + UiTheme::scale(3, m_dpi);
+            m_height += wordLabelSize.cy + UiTheme::scale(3, m_dpi);
+        }
         int x = pad;
         for (size_t i = 0; i < wordCount; ++i) {
             m_wordRects.push_back(RECT{ x, y, x + wordWidths[i], y + chipH });
@@ -409,17 +423,31 @@ void CandidateWindow::onPaint() {
 
     // --- whole-word predictions -----------------------------------------------
     if (!m_wordRects.empty()) {
+        if (m_content.wordsAreCorrections && m_wordLabelY > 0) {
+            SelectObject(hdc, m_fontLabel);
+            RECT labelRect { pad, m_wordLabelY, m_width - pad,
+                             m_wordLabelY + UiTheme::scale(14, m_dpi) };
+            UiTheme::drawText(hdc, L"did you mean", labelRect, UiTheme::TEXT_FAINT,
+                              DT_SINGLELINE | DT_LEFT | DT_NOPREFIX);
+        }
+
         for (size_t i = 0; i < m_wordRects.size(); ++i) {
             const bool hovered = (static_cast<int>(i) == m_hoverWord);
             // Deliberately not accented. The accent marks the selected *candidate*; a
             // prediction is an offer, not a current selection, and giving both the same
             // colour would make it unclear which one Ctrl+Shift+Space is acting on.
+            // A correction is a destructive offer, so it is drawn raised and outlined
+            // rather than sunken: it reads as something to act on, not as a continuation
+            // of the word already on screen.
+            const bool destructive = m_content.wordsAreCorrections;
             UiTheme::fillRoundRect(hdc, m_wordRects[i], UiTheme::scale(7, m_dpi),
-                                   hovered ? UiTheme::BORDER_SUBTLE : UiTheme::SURFACE_SUNKEN,
-                                   UiTheme::BORDER_SUBTLE);
+                                   hovered      ? UiTheme::BORDER_SUBTLE
+                                   : destructive ? UiTheme::SURFACE_RAISED
+                                                 : UiTheme::SURFACE_SUNKEN,
+                                   destructive ? UiTheme::ACCENT_DIM : UiTheme::BORDER_SUBTLE);
             SelectObject(hdc, m_fontChip);
             UiTheme::drawText(hdc, UiTheme::toWide(m_content.words[i]), m_wordRects[i],
-                              hovered ? UiTheme::TEXT : UiTheme::TEXT_MUTED,
+                              (hovered || destructive) ? UiTheme::TEXT : UiTheme::TEXT_MUTED,
                               DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX | DT_NOCLIP);
         }
     }

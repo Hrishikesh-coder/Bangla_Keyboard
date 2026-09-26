@@ -96,6 +96,9 @@ SpecialCharPicker KeyboardHook::s_specialPicker;
 DWORD KeyboardHook::s_threadId = 0;
 size_t KeyboardHook::s_previewUnits = 0;
 std::string KeyboardHook::s_previewText;
+std::string KeyboardHook::s_committedText;
+size_t KeyboardHook::s_committedUnits = 0;
+char KeyboardHook::s_committedDelimiter = 0;
 
 KeyboardHook::~KeyboardHook() {
     uninstall();
@@ -209,30 +212,70 @@ void KeyboardHook::refreshUi() {
         }
     }
 
-    // Whole-word prediction from what has been composed so far. If the composition is a
-    // prefix of known words, offer completions; if it is not, the user has probably
-    // mistyped, so offer near matches instead. Correction is only attempted once there is
-    // enough of a word to be wrong about - below three letters almost everything is within
-    // two edits of almost everything else.
-    if (s_words && s_words->size() > 0 && !content.composed.empty()) {
-        auto predictions = s_words->predict(content.composed, 4);
-        for (const auto& hit : predictions) {
-            if (hit.word != content.composed) {
-                content.words.push_back(hit.word);
-            }
-        }
-        if (content.words.empty() &&
-            WordDictionary::toCodepoints(content.composed).size() >= 3) {
-            for (const auto& hit : s_words->correct(content.composed, 2, 3)) {
-                if (hit.word != content.composed) {
-                    content.words.push_back(hit.word);
-                }
-            }
-            content.wordsAreCorrections = !content.words.empty();
-        }
+    // Whole-word completions for what has been composed so far. Corrections deliberately
+    // do NOT happen here: while a word is unfinished most of its prefixes match nothing,
+    // and correcting them tells the user they mistyped a word they are typing correctly.
+    // See suggestFor() and docs/LIMITATIONS.md.
+    if (s_words) {
+        SuggestionSet set = suggestFor(*s_words, content.composed, /*wordFinished=*/false);
+        content.words = set.words;
+        content.wordsAreCorrections = (set.kind == SuggestionKind::Correction);
     }
 
     s_candidateWindow->update(content);
+}
+
+void KeyboardHook::offerCorrections() {
+    if (!s_words || !s_candidateWindow || s_committedText.empty()) {
+        return;
+    }
+
+    SuggestionSet set = suggestFor(*s_words, s_committedText, /*wordFinished=*/true);
+    if (set.kind != SuggestionKind::Correction || set.empty()) {
+        s_candidateWindow->hide();
+        return;
+    }
+
+    CandidateWindow::Content content;
+    content.roman = s_committedText;
+    content.composed = s_committedText;
+    content.modeLabel = "TYPED";
+    content.words = set.words;
+    content.wordsAreCorrections = true;
+    s_candidateWindow->update(content);
+}
+
+void KeyboardHook::applyCorrection(const std::string& word) {
+    if (word.empty() || s_committedText.empty()) {
+        return;
+    }
+
+    // The document already holds the word plus the delimiter that ended it, so both come
+    // out and both go back. Retyping the delimiter keeps the caret and the spacing exactly
+    // where the user left them.
+    const size_t toDelete = s_committedUnits + (s_committedDelimiter ? 1 : 0);
+    std::string replacement = word;
+    if (s_committedDelimiter) {
+        replacement += s_committedDelimiter;
+    }
+
+    InputInjector::replaceText(toDelete, replacement);
+    std::cout << "[CORRECT] \"" << s_committedText << "\" ==> \"" << word << "\"" << std::endl;
+
+    s_committedText.clear();
+    s_committedUnits = 0;
+    s_committedDelimiter = 0;
+    if (s_candidateWindow) {
+        s_candidateWindow->hide();
+    }
+}
+
+void KeyboardHook::selectWordOrCorrection(const std::string& word) {
+    if (!s_buffer.empty()) {
+        selectWord(word);       // still typing: complete it
+    } else {
+        applyCorrection(word);  // word already landed: replace it
+    }
 }
 
 void KeyboardHook::selectWord(const std::string& word) {
@@ -254,6 +297,8 @@ void KeyboardHook::selectWord(const std::string& word) {
     }
     s_previewUnits = 0;
     s_previewText.clear();
+    s_committedText.clear();
+    s_committedUnits = 0;
     if (s_candidateWindow) {
         s_candidateWindow->hide();
     }
@@ -303,6 +348,10 @@ void KeyboardHook::commitBuffer() {
     }
 
     std::cout << "[COMMIT] \"" << roman << "\" ==> \"" << finalText << "\"" << std::endl;
+
+    // Remember what landed, so a correction can undo it.
+    s_committedText = finalText;
+    s_committedUnits = InputInjector::utf16UnitCount(finalText);
 
     s_buffer.clear();
     s_previewUnits = 0;
@@ -545,6 +594,12 @@ LRESULT CALLBACK KeyboardHook::hookCallback(int nCode, WPARAM wParam, LPARAM lPa
                             : static_cast<char>(std::tolower(kbd->vkCode));
             }
 
+            // A new word begins: whatever correction was on offer for the previous one is
+            // no longer actionable, because the text it would edit is no longer adjacent
+            // to the caret.
+            s_committedText.clear();
+            s_committedUnits = 0;
+
             s_buffer.append(c);
             if (s_engine) {
                 s_engine->updateActiveBuffer(s_buffer.content());
@@ -595,6 +650,17 @@ LRESULT CALLBACK KeyboardHook::hookCallback(int nCode, WPARAM wParam, LPARAM lPa
 
     if ((isSpace || isReturn || isPunctuation) && !s_buffer.empty()) {
         if (isKeyDown) {
+            // Remember which delimiter ended the word. A correction has to retype it, and
+            // Enter cannot be retyped safely -- re-injecting a newline could submit a form
+            // or run a command -- so a word ended by Enter is committed without an offer.
+            s_committedDelimiter = isSpace ? ' '
+                                 : isReturn ? 0
+                                 : '\0';
+            if (isPunctuation) {
+                char punctuation = 0;
+                s_committedDelimiter = charFromKey(kbd, punctuation) ? punctuation : 0;
+            }
+
             if (KeyboardState::getInstance().isLivePreviewEnabled()) {
                 // The word is already on screen; commitBuffer only patches it if the
                 // final text disagrees with what was previewed.
@@ -614,7 +680,12 @@ LRESULT CALLBACK KeyboardHook::hookCallback(int nCode, WPARAM wParam, LPARAM lPa
                 InputInjector::injectText(bengali);
             }
         }
-        // Let the space/enter/punctuation pass through so formatting is preserved
+        // Let the space/enter/punctuation pass through so formatting is preserved. Only
+        // once it has landed does the correction offer make sense, because the delimiter
+        // is part of what a correction would have to replace.
+        if (isKeyDown && !isReturn) {
+            offerCorrections();
+        }
         return CallNextHookEx(s_hHook, nCode, wParam, lParam);
     }
 

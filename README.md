@@ -570,6 +570,16 @@ accent marks the selected *candidate*, and giving an offer the same colour as a 
 selection would obscure which one `Ctrl+Shift+Space` is acting on. Clicking one replaces the
 **entire word** and commits it.
 
+**Autocorrect gives choices; it never changes anything by itself.** Completion and
+correction are deliberately separate, decided by `suggestFor()` in
+`core/SuggestionPolicy.h`: while a word is unfinished only completions are offered, because
+most prefixes of a correctly typed word match nothing — বাংলা passes through বান — and
+correcting those tells the user they mistyped a word they are typing perfectly. Once the
+word is finished, a recognised word gets no offer and an unrecognised one gets a **did you
+mean** row, drawn raised and outlined rather than sunken so it reads as something to act on.
+Clicking a chip removes the word and its delimiter and retypes both. A word ended with Enter
+gets no offer: re-injecting a newline could submit a form.
+
 `config/words_bangla.json` is a 197-word starter list with hand-assigned weights, labelled
 as such in the file. Any `{"word": count}` map or bare array loads unchanged.
 
@@ -829,7 +839,7 @@ Output:
 [RUN ] test_shipped_layout_is_complete ... PASSED
 
 ----------------------------------------
-Results: 40/40 passed
+Results: 43/43 passed
 ========================================
 ```
 
