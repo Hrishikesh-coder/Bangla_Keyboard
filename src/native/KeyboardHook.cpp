@@ -2,6 +2,7 @@
 #include "native/InputInjector.h"
 #include <iostream>
 #include <cctype>
+#include <algorithm>
 
 /*
  * ============================================================================
@@ -206,7 +207,14 @@ void KeyboardHook::refreshUi() {
             for (const auto& completion :
                  s_engine->getSymbolTable().trie().getCompletions(lastToken, 5)) {
                 if (completion != lastToken) {
-                    content.suggestions.push_back(completion);
+                    auto opts = s_engine->getSymbolTable().lookup(completion);
+                    if (opts && !opts->empty()) {
+                        const std::string& bengaliStr = (*opts)[0];
+                        // Prevent duplicates (e.g. if two rules map to the same glyph)
+                        if (std::find(content.suggestions.begin(), content.suggestions.end(), bengaliStr) == content.suggestions.end()) {
+                            content.suggestions.push_back(bengaliStr);
+                        }
+                    }
                 }
             }
         }
@@ -722,7 +730,11 @@ LRESULT CALLBACK KeyboardHook::hookCallback(int nCode, WPARAM wParam, LPARAM lPa
 
     // Any other key (arrows, Home/End, Tab, mouse-driven focus changes...) ends the word:
     // the caret is about to move, so the preview must not be edited by backspaces any more.
-    if (isKeyDown && !s_buffer.empty()) {
+    const bool isModifier = (kbd->vkCode == VK_CONTROL || kbd->vkCode == VK_LCONTROL || kbd->vkCode == VK_RCONTROL ||
+                             kbd->vkCode == VK_SHIFT   || kbd->vkCode == VK_LSHIFT   || kbd->vkCode == VK_RSHIFT   ||
+                             kbd->vkCode == VK_MENU    || kbd->vkCode == VK_LMENU    || kbd->vkCode == VK_RMENU    ||
+                             kbd->vkCode == VK_CAPITAL || kbd->vkCode == VK_LWIN     || kbd->vkCode == VK_RWIN);
+    if (isKeyDown && !s_buffer.empty() && !isModifier) {
         commitBuffer();
     }
 
