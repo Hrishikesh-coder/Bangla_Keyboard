@@ -84,8 +84,13 @@ fix did not take.
 |---|---|---|
 | E1 | Type `bang` | Second chip row offers বাংলা, বাংলাদেশ |
 | E2 | Click a prediction | **Whole word** replaces the composition and commits |
-| E3 | Type a near-miss of a known word | Corrections offered instead of completions |
-| E4 | Type a word not in the list | No suggestion row; typing unaffected |
+| E3 | Type `bangla` slowly, watch the row at every keystroke | Never once says **did you mean** — completions or nothing |
+| E4 | Type `banla` then **space** | Overlay stays open: **did you mean** বাংলা |
+| E5 | Click that correction | বান্লা replaced by বাংলা, the space preserved |
+| E6 | Type `banla`, space, then keep typing | Offer disappears, no text disturbed |
+| E7 | Type a correct word then space | **No** offer at all |
+| E8 | Type `banla` then **Enter** | No offer (a newline cannot be safely retyped) |
+| E9 | Type a name not in the list, then space | No offer rather than a wrong guess |
 
 ## F. Fixed layout
 

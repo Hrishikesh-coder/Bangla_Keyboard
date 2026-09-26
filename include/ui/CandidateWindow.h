@@ -62,7 +62,13 @@ public:
          */
         std::vector<std::string> words;
 
-        /// True when `words` are corrections of a misspelling rather than completions.
+        /**
+         * True when `words` replace what was typed rather than extending it.
+         *
+         * Read by the painter, not merely stored: a completion and a correction look
+         * identical as chips, but clicking one finishes your word and clicking the other
+         * throws it away. The user has to be able to tell which row they are looking at.
+         */
         bool wordsAreCorrections = false;
     };
 
@@ -132,6 +138,7 @@ private:
     int m_width = 0;
     int m_height = 0;
     int m_suggestionY = 0;
+    int m_wordLabelY = 0;
     int m_hoverChip = -1;
     int m_hoverWord = -1;
     bool m_visible = false;
