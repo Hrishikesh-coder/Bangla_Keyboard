@@ -33,6 +33,7 @@ set(CORE_SOURCES
 
 # Native Win32 hook and injection sources
 set(NATIVE_SOURCES
+    src/native/ConsoleHost.cpp
     src/native/InputInjector.cpp
     src/native/KeyboardHook.cpp
     src/native/KeyboardState.cpp
@@ -49,7 +50,7 @@ set(UI_SOURCES
 # Main executable. The native layer is Win32-only, so it is only defined on Windows;
 # this keeps the engine and its tests buildable on Linux/macOS for CI.
 if(WIN32)
-    add_executable(ShobdomalaApp WIN32
+    add_executable(shobdomala WIN32
         src/main.cpp
         ${CORE_SOURCES}
         ${NATIVE_SOURCES}
@@ -57,17 +58,17 @@ if(WIN32)
     )
 
     # user32: hooks and SendInput. gdi32: custom-drawn UI. shell32: tray icon.
-    target_link_libraries(ShobdomalaApp PRIVATE user32 gdi32 shell32)
+    target_link_libraries(shobdomala PRIVATE user32 gdi32 shell32)
 
     if (MSVC)
-        set_target_properties(ShobdomalaApp PROPERTIES LINK_FLAGS "/ENTRY:mainCRTStartup")
+        set_target_properties(shobdomala PROPERTIES LINK_FLAGS "/ENTRY:mainCRTStartup")
     endif()
 
     # Copy config directory to build output directory
-    add_custom_command(TARGET ShobdomalaApp POST_BUILD
+    add_custom_command(TARGET shobdomala POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_CURRENT_SOURCE_DIR}/config
-            $<TARGET_FILE_DIR:ShobdomalaApp>/config
+            $<TARGET_FILE_DIR:shobdomala>/config
     )
 endif()
 

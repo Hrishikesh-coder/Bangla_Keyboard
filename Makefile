@@ -21,7 +21,8 @@ CORE_SRCS = src/core/CandidateResolver.cpp \
             src/core/TokenTrie.cpp \
             src/core/UnicodeComposer.cpp
 
-NATIVE_SRCS = src/native/InputInjector.cpp \
+NATIVE_SRCS = src/native/ConsoleHost.cpp \
+              src/native/InputInjector.cpp \
               src/native/KeyboardHook.cpp \
               src/native/KeyboardState.cpp
 
@@ -38,7 +39,9 @@ CONFIGS = config/phonetic_rules.json config/exceptions.json config/layout_probha
 
 ifeq ($(OS),Windows_NT)
     EXE      := .exe
-    LDFLAGS  := -luser32 -lgdi32 -lshell32
+    # -mwindows: GUI subsystem, so no console window appears on launch. ConsoleHost
+    # attaches to the launching terminal or allocates one when output is asked for.
+    LDFLAGS  := -mwindows -luser32 -lgdi32 -lshell32
     MKDIR     = @if not exist "$(subst /,\,$1)" mkdir "$(subst /,\,$1)"
     COPYCFG   = @for %%f in ($(subst /,\,$(CONFIGS))) do @copy /Y "%%f" "bin\config\" >nul
     RMDIR     = @if exist bin rmdir /S /Q bin
