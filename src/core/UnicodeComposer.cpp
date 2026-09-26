@@ -190,6 +190,15 @@ std::string UnicodeComposer::composeStrings(const std::vector<std::string>& comp
                 // Directly provided matra
                 output.push_back(cp);
                 previousWasConsonant = false;
+            } else if (cp == 0x09BC) {
+                // NUKTA. It is a modifier on the consonant it follows, not a character in
+                // its own right: ড + ় is still the single letter ড়, and a vowel after it
+                // must still become a matra. Clearing the flag here made "baRi" compose as
+                // বাড়ই instead of বাড়ি, and "meye" as মেয়এ instead of মেয়ে -- the vowel
+                // was emitted in its independent form because the composer had forgotten
+                // it was standing on a consonant.
+                output.push_back(cp);
+                // previousWasConsonant deliberately left unchanged.
             } else {
                 // Signs (Chandrabindu, Anusvara, Visarga), Khanda Ta (ৎ), numbers, punctuation
                 output.push_back(cp);

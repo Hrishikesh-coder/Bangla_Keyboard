@@ -1170,6 +1170,52 @@ static bool test_suggestion_policy_over_a_whole_word() {
     return true;
 }
 
+
+static bool test_nukta_does_not_break_following_matra() {
+    // A nukta modifies the consonant it follows; ড + ় is still one letter. If the composer
+    // treats it as a sign and forgets it is standing on a consonant, the next vowel comes
+    // out in its independent form: বাড়ই instead of বাড়ি, মেয়এ instead of মেয়ে.
+    PhoneticEngine engine;
+    TEST_ASSERT(loadProductionConfig(engine));
+
+    // বাড়ি = ব া ড ় ি
+    TEST_ASSERT_EQ(engine.transliterate("baRi"),
+                   cp({0x09AC, 0x09BE, 0x09A1, 0x09BC, 0x09BF}));
+
+    // মেয়ে = ম ে য ় ে
+    TEST_ASSERT_EQ(engine.transliterate("meye"),
+                   cp({0x09AE, 0x09C7, 0x09AF, 0x09BC, 0x09C7}));
+
+    // পড়া = প ড ় া
+    TEST_ASSERT_EQ(engine.transliterate("poRa"),
+                   cp({0x09AA, 0x09A1, 0x09BC, 0x09BE}));
+
+    return true;
+}
+
+static bool test_engine_and_dictionary_agree_on_normalisation() {
+    // The dictionary can only ever match what the engine actually produces. য় has two
+    // encodings -- য + ় and the precomposed U+09DF -- and they are different strings. If
+    // the two components disagree, prediction silently returns nothing for every word
+    // containing one of these letters, with no error anywhere.
+    PhoneticEngine engine;
+    TEST_ASSERT(loadProductionConfig(engine));
+    WordDictionary dict;
+    TEST_ASSERT(dict.loadFromFile(findConfig("words_bangla.json")));
+
+    const char* roman[] = { "somoy", "hoy", "meye", "baRi" };
+    for (const char* word : roman) {
+        const std::string composed = engine.transliterate(word);
+        if (!dict.contains(composed)) {
+            std::cerr << "  engine produced \"" << composed
+                      << "\" which is not in the dictionary (normalisation mismatch?)\n";
+            return false;
+        }
+    }
+
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Fixed layout engine
 // ---------------------------------------------------------------------------
@@ -1452,6 +1498,8 @@ int main() {
     RUN_TEST(test_special_picker_survives_modifier_release);
     RUN_TEST(test_exception_override_reaches_live_preview);
     RUN_TEST(test_exception_dictionary_case_collision);
+    RUN_TEST(test_nukta_does_not_break_following_matra);
+    RUN_TEST(test_engine_and_dictionary_agree_on_normalisation);
     RUN_TEST(test_fixed_layout_engine);
     RUN_TEST(test_word_dictionary_codepoints);
     RUN_TEST(test_word_prediction_ranks_by_frequency);
@@ -1464,13 +1512,10 @@ int main() {
     RUN_TEST(test_suggestion_policy_over_a_whole_word);
     RUN_TEST(test_legacy_single_map_layout_still_loads);
     RUN_TEST(test_shipped_layout_matches_probhat);
-<<<<<<< HEAD
     RUN_TEST(test_word_dictionary_frequency_and_prefix);
     RUN_TEST(test_shipped_word_list_corrections);
     RUN_TEST(test_dictionary_candidate_resolver);
     RUN_TEST(test_fixed_layout_engine_customization);
-=======
->>>>>>> 7c0439cff3e302b8d6ca3c2e2c7aed07a56deca5
 
     std::cout << "\n----------------------------------------\n";
     std::cout << "Results: " << g_testsPassed << "/" << g_testsRun << " passed";
