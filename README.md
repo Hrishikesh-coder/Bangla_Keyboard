@@ -18,6 +18,7 @@ An educational System Programming prototype demonstrating how to intercept, proc
    - [7c. Fixed Layout Mode](#7c-fixed-layout-mode)
    - [7d. Live In-Place Preview](#7d-live-in-place-preview)
    - [7e. The Interface](#7e-the-interface)
+   - [7f. Word Prediction and Autocorrect](#7f-word-prediction-and-autocorrect)
 8. [Configurable Symbol Table & JSON](#configurable-symbol-table--json)
 9. [Unicode Composition & Bengali Conjuncts](#unicode-composition--bengali-conjuncts)
 10. [Special Character Picker (ৎ ং ঃ ঁ ঞ)](#special-character-picker-ৎ-ং-ঃ-ঁ-ঞ)
@@ -104,10 +105,14 @@ Shobdomala/
 ├── config/
 │   ├── phonetic_rules.json     # User-editable Roman -> Bengali rules, with context variants
 │   ├── exceptions.json         # Whole-word overrides + English passthrough list
-│   └── layout_probhat.json     # Fixed keyboard layout (key -> glyph map)
+│   ├── layout_probhat.json     # Verified Probhat layout (base / shift / AltGr)
+│   └── words_bangla.json       # Starter word-frequency list for prediction
 ├── docs/
 │   ├── CONTEXTUAL_ENGINE.md    # Why the engine needs two passes (report material)
-│   └── INTERFACE.md            # UI design rationale
+│   ├── INTERFACE.md            # UI design rationale
+│   ├── TYPING_CONVENTION.md    # The inherent-vowel decision, for the team
+│   ├── MANUAL_TEST_PLAN.md     # 50 checks to run on real Windows hardware
+│   └── LIMITATIONS.md          # Known boundaries, for the report
 ├── include/
 │   ├── core/
 │   │   ├── Candidate.h            # Roman token + candidate Bengali strings
@@ -448,10 +453,16 @@ composition pass — which is exactly why professional Bengali typists prefer fi
 Press `Ctrl + Shift + L` to cycle into it. The map lives in `config/layout_probhat.json`, so
 a different layout, or one a user designs, is a data edit rather than a code change.
 
-> **Note:** the shipped map is a *draft*. It is complete and internally consistent — every
-> Bengali letter, matra and sign is reachable, and `test_shipped_layout_is_complete` asserts
-> that — but it has not been checked key-for-key against the official Probhat chart. Verify
-> it before claiming Probhat compatibility in the report.
+The shipped map is **verified**: transcribed key-for-key from the canonical X11 definition
+`xkb_symbols "ben_probhat"` (`/usr/share/X11/xkb/symbols/in`), the Probhat that Linux
+distributions ship, derived from the ankurbangla.org scheme. An earlier draft scored 72% —
+the letter rows were right, the Z row, most punctuation and the whole AltGr level were not.
+`test_shipped_layout_matches_probhat` pins the keys that were wrong.
+
+Probhat is three levels deep: base, Shift, and **AltGr**, which holds the nukta, ৗ, ঽ, the
+rupee sign and the currency-fraction signs. All three are implemented. Windows has no AltGr
+virtual key — the driver synthesises left-Ctrl plus right-Alt — so it is detected as
+right-Alt being down.
 
 ---
 
@@ -531,6 +542,36 @@ and both windows handle `WM_DPICHANGED`.
 
 Full rationale, including the Win32 details that make each surface behave:
 [`docs/INTERFACE.md`](docs/INTERFACE.md).
+
+---
+
+## 7f. Word Prediction and Autocorrect
+
+`TokenTrie` indexes Roman **rule tokens** and answers "which longer rules begin with `kh`".
+`WordDictionary` indexes Bengali **words** and answers "which words begin with বাং". Two
+different questions, two different structures.
+
+The dictionary is keyed by **Unicode codepoint**, not by UTF-8 byte. Every Bengali letter
+is three bytes, so a byte-wise edit distance would score a one-letter typo as three edits
+and could assemble broken sequences mid-word.
+
+**Prediction** walks the prefix and ranks the subtree by frequency.
+
+**Correction** carries a Levenshtein DP row down the trie and abandons a subtree the moment
+the smallest value in its row exceeds the threshold — no descendant can score better, since
+extra letters only add to the distance. Comparing against every word separately would be
+O(words × length) per keystroke, which is not affordable inside a hook callback that Windows
+will silently unhook for running long. It only runs when prefix prediction finds nothing and
+at least three letters have been composed; below that, almost everything is within two edits
+of almost everything else.
+
+Predictions appear as a second chip row in the overlay, deliberately **not** accented: the
+accent marks the selected *candidate*, and giving an offer the same colour as a current
+selection would obscure which one `Ctrl+Shift+Space` is acting on. Clicking one replaces the
+**entire word** and commits it.
+
+`config/words_bangla.json` is a 197-word starter list with hand-assigned weights, labelled
+as such in the file. Any `{"word": count}` map or bare array loads unchanged.
 
 ---
 
@@ -788,7 +829,7 @@ Output:
 [RUN ] test_shipped_layout_is_complete ... PASSED
 
 ----------------------------------------
-Results: 26/26 passed
+Results: 40/40 passed
 ========================================
 ```
 
@@ -796,17 +837,14 @@ Results: 26/26 passed
 
 ## 16. Known Limitations
 
-As a minimal educational prototype, Shobdomala intentionally omits several production IME features:
+Full discussion, with the reasoning behind each boundary, in
+[`docs/LIMITATIONS.md`](docs/LIMITATIONS.md). In brief:
 
-1. **No Candidate Window in Fixed-Layout Mode**:
-   - The composition overlay is a phonetic-mode surface. Fixed-layout typing is stateless by design — one key, one glyph — so there is nothing in progress to preview and no candidates to choose between. That is correct behaviour, but it does mean the two modes feel different, and a user switching between them gets no visual confirmation of which one they are in beyond the tray icon and the mode pip.
-2. **Live Preview Assumes a Stationary Caret**:
-   - In-place rendering erases the previous version with backspaces. If the caret moves mid-word for a reason we cannot observe — a mouse click, an autocomplete box rewriting the field, a terminal redrawing its line — those backspaces delete the wrong text. Any non-delimiter key commits the word defensively, and `Ctrl + Shift + P` / `--no-preview` restores the flush-on-delimiter behaviour.
-3. **Context, Not Comprehension**:
-   - Contextual rules resolve position-dependent forms (`ng` as ঙ vs ং, matra vs independent vowel, the inherent vowel). They cannot resolve genuine homophones: `শ`/`ষ`/`স`, `ন`/`ণ`, `ই`/`ঈ` are distinguished by *meaning*, not position. Full IMEs like Avro use dictionary lookups or statistical language models; Shobdomala ships an exception dictionary for common cases, orders candidates by likelihood, and leaves the rest to manual cycling. `ICandidateResolver` is the documented place to plug in something smarter.
-4. **Fixed Layout Is a Draft**:
-   - `config/layout_probhat.json` is complete and internally consistent but has not been verified key-for-key against the official Probhat chart. Treat it as Shobdomala's own layout until checked.
-5. **Elevated Applications & UIPI**:
-   - On Windows, User Interface Privilege Isolation (UIPI) prevents standard user applications from sending `SendInput` events to elevated (Administrator) windows. To type into an elevated application, Shobdomala must also be run with Administrator privileges.
-6. **No Advanced Glyphs / OpenType Shaping**:
-   - Unicode composition generates logical Unicode codepoint sequences. Rendering ligatures, reordering the pre-base `ে` (e-kar) and `ি` (i-kar) glyphs visually, and shaping complex conjuncts is delegated to Windows DirectWrite / Uniscribe and the target application's font engine, which is the standard architecture.
+1. **The overlay assumes a stationary caret.** Live preview edits with backspaces, so an application that moves the caret underneath us can swallow them. Any non-delimiter key commits defensively; `Ctrl+Shift+P` falls back to flush-on-delimiter. The real fix is Windows TSF, which is beyond a term project.
+2. **Context resolves position, not meaning.** ঙ/ং and matra/independent-vowel are positional and handled. শ/ষ/স, ন/ণ and ই/ঈ are homophones, distinguished by which word it is — handled by candidate cycling, the exception dictionary and word prediction, with `ICandidateResolver` left as the extension point for a frequency or n-gram model.
+3. **UIPI blocks injection into elevated windows.** Run elevated to type into them. Not defaulting to elevation is deliberate: a program that reads every keystroke should hold the least privilege that works.
+4. **The word list is a 197-word starter**, not a corpus. Labelled as such in the file; any `{"word": count}` source loads unchanged.
+5. **No overlay in fixed-layout mode.** Fixed typing is stateless, so there is nothing in progress to preview — correct, but it makes the modes feel different.
+6. **No layout editor.** The on-screen keyboard renders any layout file; editing caps in place is the unimplemented next step.
+7. **Shaping is delegated to DirectWrite.** The composer emits logically correct codepoints; ligature formation and pre-base matra reordering are the font's job. That is the intended architecture, not an omission.
+8. **Untested on real hardware.** Compile-verified with 40 automated engine tests; the Windows UI has never been run. [`docs/MANUAL_TEST_PLAN.md`](docs/MANUAL_TEST_PLAN.md) is the checklist for closing that gap.
